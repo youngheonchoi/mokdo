@@ -1,35 +1,21 @@
 import { Scene } from 'phaser';
+import { type RunResult } from '../combat';
+import { drawForest } from '../world';
+import { lootSlots, mountUI, timeLabel } from '../ui';
+import { progress, statsFor } from '../progression';
 
-export class GameOver extends Scene
-{
-    camera: Phaser.Cameras.Scene2D.Camera;
-    background: Phaser.GameObjects.Image;
-    gameover_text : Phaser.GameObjects.Text;
+export class GameOver extends Scene {
+    constructor() { super('GameOver'); }
 
-    constructor ()
-    {
-        super('GameOver');
-    }
-
-    create ()
-    {
-        this.camera = this.cameras.main
-        this.camera.setBackgroundColor(0xff0000);
-
-        this.background = this.add.image(512, 384, 'background');
-        this.background.setAlpha(0.5);
-
-        this.gameover_text = this.add.text(512, 384, 'Game Over', {
-            fontFamily: 'Arial Black', fontSize: 64, color: '#ffffff',
-            stroke: '#000000', strokeThickness: 8,
-            align: 'center'
-        });
-        this.gameover_text.setOrigin(0.5);
-
-        this.input.once('pointerdown', () => {
-
-            this.scene.start('MainMenu');
-
-        });
+    create(result: RunResult) {
+        drawForest(this);
+        const bossWin = result.mode === 'boss' && result.won;
+        const title = bossWin ? '숲이 풍성한 선물을 남겼습니다.' : result.retreated ? '다음 도전을 준비하며.' : result.won ? '가방도, 마음도 조금 더 풍성하게.' : '다음 모험은 더 강한 모습으로.';
+        const description = bossWin ? '수호자 그루가 다시 깊은 잠에 빠졌어요. 모아 온 전리품은 쉼터에 보관됩니다.' : result.won || result.retreated ? '모아 온 전리품을 모두 회수했습니다. 쉼터에서 성장한 모습을 확인하세요.' : '얻은 경험치와 주운 전리품은 유지됩니다. 바닥에 남은 전리품은 회수하지 못했어요.';
+        const root = mountUI(this, `<main class="result-screen"><a class="brand result-brand" href="#">✦ <span>MOKDO</span></a><section class="result-card rewards-result"><span class="result-symbol">${bossWin ? '✧' : '❧'}</span><span class="eyebrow">${bossWin ? 'THE FOREST REMEMBERS YOU' : 'EVERY JOURNEY MAKES YOU STRONGER'}</span><h1>${title}</h1><p>${description}</p>${result.firstClear ? '<span class="first-clear">첫 수호자 격파 · CLEAR 기록 달성</span>' : ''}<div class="run-stats"><div><span>모험 시간</span><strong>${timeLabel(result.seconds)}</strong></div><div><span>획득 경험치</span><strong>+${result.xp}<small>XP</small></strong></div><div><span>처치 수</span><strong>${result.kills}<small>회</small></strong></div></div><div class="result-loot"><span class="eyebrow">이번 모험에서 모은 전리품</span><div class="stash-grid">${lootSlots(result.loot)}</div></div><div class="result-actions"><button class="button primary" id="back-hub">쉼터로 돌아가기</button><button class="button secondary" id="retry-game">${result.mode === 'field' ? '다시 사냥하기' : '보스 다시 도전'}</button></div><span class="result-note ${progress.message ? 'save-warning' : ''}">${progress.message || `여행자 Lv. ${statsFor(progress.read().xp).level} · 성장과 전리품이 이 브라우저에 저장되었습니다.`}</span></section></main>`);
+        root.querySelector('#retry-game')!.addEventListener('click', () => this.scene.start('Game', { mode: result.mode }));
+        root.querySelector('#back-hub')!.addEventListener('click', () => this.scene.start('Hub'));
+        root.querySelector('.brand')!.addEventListener('click', event => { event.preventDefault(); this.scene.start('MainMenu'); });
+        this.cameras.main.fadeIn(400, 10, 30, 24);
     }
 }
