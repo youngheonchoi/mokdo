@@ -1,0 +1,23 @@
+package com.mokdo.backend.controller;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+class HealthControllerTests {
+
+    @Test
+    void healthReturnsExpectedJsonWithoutDatabase() throws Exception {
+        MockMvcBuilders.standaloneSetup(new HealthController()).build()
+                .perform(get("/api/health"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("""
+                        {"status":"UP","service":"mokdo-backend"}
+                        """));
+    }
+}
