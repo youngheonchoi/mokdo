@@ -1,3 +1,4 @@
+import { BossLobby } from './scenes/BossLobby';
 import { Hub } from './scenes/Hub';
 import { Boot } from './scenes/Boot';
 import { GameOver } from './scenes/GameOver';
@@ -25,6 +26,8 @@ const config: Phaser.Types.Core.GameConfig = {
         MainMenu,
         Hub,
         MainGame,
+        BossLobby,
+        new MainGame('BossRoom'),
         GameOver
     ]
 };

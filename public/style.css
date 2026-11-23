@@ -1051,3 +1051,81 @@ button:disabled {
 .result-loot .loot-slot > div > span { font-size: 11px; }
 .result-loot .loot-slot b { font-size: 20px; }
 .first-clear { display: inline-block; font-size: 11px; color: #e3d5a2; padding: 6px 13px; border: 1px solid #a9a47755; border-radius: 4px; }
+
+/* Walkable map transitions */
+.scene-ui { position: absolute; inset: 0; pointer-events: none; }
+.route-trail { position: absolute; top: 111px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 13px; white-space: nowrap; font-size: 12px; color: #829c81; padding: 10px 16px; background: #112e24a6; border: 1px solid #9aae7c33; border-radius: 5px; }
+.route-trail .current { color: #e0e9be; }
+.route-trail .route-divider { color: #5f7d62; font-size: 10px; }
+.game-screen:not(.town-screen) > .route-trail { top: auto; bottom: 130px; }
+.interaction-prompt { position: absolute; bottom: 169px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 17px; padding: 15px 19px; min-width: 430px; border: 1px solid #b1c99799; border-radius: 7px; background: #143b2bf5; box-shadow: 0 10px 45px #071e1955; z-index: 4; }
+.interaction-prompt > .key { font-size: 18px; padding: 10px 13px; border-color: #bccd9d88; color: #e6edc5; }
+.interaction-prompt strong { display: block; font-size: 17px; font-weight: 500; color: #edf0d1; }
+.interaction-prompt div > span { display: block; font-size: 11px; color: #a2b794; margin-top: 6px; }
+.interaction-prompt .button { margin-left: auto; min-height: 42px; padding: 11px 17px; font-size: 13px; white-space: nowrap; }
+.town-screen { background: linear-gradient(180deg,#0c2b23d6,transparent 28%,transparent 70%,#0b2b22f2); }
+.town-screen .quest p { max-width: 265px; line-height: 1.9; }
+.map-sign { position: absolute; text-align: center; }
+.town-sign { left: 795px; width: 320px; top: 533px; }
+.map-sign .eyebrow { font-size: 9px; }
+.map-sign strong { display: block; font-size: 18px; font-weight: 500; margin: 9px 0; color: #dce8c1; }
+.map-sign > span:last-child { display: block; font-size: 12px; color: #a5ba97; }
+.town-screen .interaction-prompt { bottom: 130px; }
+.exploration-footer { position: absolute; left: 43px; right: 43px; bottom: 30px; border-top: 1px solid #aac48a38; padding-top: 22px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.exploration-footer > div:first-child > b { display: block; font-size: 17px; font-weight: 500; letter-spacing: 1px; }
+.exploration-footer > div:first-child > b > span { color: #bacb9d; font-size: 12px; margin-left: 12px; }
+.exploration-footer > div:first-child > span { display: block; font-size: 11px; color: #a0b692; margin-top: 9px; }
+.exploration-footer .control-strip { gap: 10px; align-items: center; font-size: 12px; color: #adc19b; }
+.exploration-footer > span { max-width: 365px; font-size: 11px; line-height: 1.7; color: #8ca57f; }
+.profile-modal { width: 830px; }
+.profile-heading { display: flex; justify-content: space-between; align-items: center; }
+.profile-heading h2 { margin-bottom: 20px; }
+.profile-heading .icon-button { align-self: flex-start; font-size: 25px; }
+.profile-stats { display: flex; justify-content: space-between; padding: 17px 0; border-top: 1px solid #9eb78133; border-bottom: 1px solid #9eb78133; font-size: 14px; color: #9db891; }
+.profile-stats b { margin-left: 8px; color: #dfebbe; font-weight: 500; }
+.profile-modal h3 { margin-top: 30px; margin-bottom: 16px; font-size: 17px; font-weight: 500; }
+.profile-modal .stash-grid { grid-template-columns: repeat(2, 1fr); }
+.profile-modal .profile-note { font-size: 12px; color: #90aa84; }
+.profile-modal #reset-progress { margin-top: 14px; font-size: 12px; color: #b0b38b; }
+.reset-overlay { z-index: 30; }
+.game-screen:not(.town-screen) .game-toast { bottom: 257px; }
+.lobby-screen { position: absolute; inset: 0; background: linear-gradient(90deg,#0b251ef2 0%,#0d2a22ec 44%,#122e2440 76%),linear-gradient(0deg,#0b241eea,transparent 50%,#0b251e77); }
+.lobby-card { position: absolute; left: 75px; top: 215px; width: 620px; padding: 32px; border: 1px solid #9db48655; border-radius: 10px; background: #193e2d91; }
+.lobby-card > .eyebrow { font-size: 10px; letter-spacing: 1.5px; }
+.lobby-card h2 { font-size: 29px; font-weight: 500; margin: 16px 0; letter-spacing: -1px; }
+.lobby-card > p { font-size: 14px; color: #a9be9c; line-height: 1.9; }
+.boss-brief { display: flex; align-items: center; gap: 18px; padding: 15px 0; border-top: 1px solid #93ad7b38; border-bottom: 1px solid #93ad7b38; margin: 24px 0; }
+.boss-brief > span { font: 42px Georgia,serif; color: #d7c593; }
+.boss-brief strong { display: block; font-size: 18px; font-weight: 500; }
+.boss-brief div > span { display: block; margin-top: 8px; font-size: 12px; color: #a1b28d; }
+.lobby-player { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
+.lobby-player .portrait { width: 45px; height: 49px; font-size: 23px; }
+.lobby-player strong { display: block; font-size: 16px; font-weight: 500; }
+.lobby-player small { margin-left: 8px; font-size: 12px; color: #bbcaa1; }
+.lobby-player div > span { display: block; margin-top: 7px; font-size: 11px; color: #9aaf88; }
+.ready-status { margin-left: auto; color: #a6b290; border: 1px solid #8e9e7555; padding: 7px 10px; border-radius: 4px; font-size: 12px; }
+.ready-status.is-ready { color: #c6eab5; border-color: #bed79777; background: #78a66f22; }
+.lobby-actions { display: flex; gap: 12px; }
+.lobby-actions .button { flex: 1; }
+.lobby-card > .lobby-note { font-size: 11px; color: #8ea680; margin-bottom: 0; min-height: 39px; }
+.lobby-card #cancel-entry { color: #dcc798; font-size: 12px; }
+.button:disabled { opacity: 0.38; transform: none; box-shadow: none; }
+.lobby-caption { position: absolute; left: 800px; top: 620px; width: 350px; text-align: center; }
+.lobby-caption strong { display: block; font-size: 25px; font-weight: 500; margin: 12px 0; }
+.lobby-caption > span:last-child { display: block; color: #afbc97; font-size: 12px; }
+.result-town-link { display: block; margin: 20px auto 0; font-size: 12px; color: #a3b58c; }
+.rewards-result .result-note { margin-top: 14px; }
+
+/* Scrolling worlds keep navigation and combat UI on the screen. */
+.mini-map { position: absolute; right: 43px; top: 113px; width: 172px; padding: 10px; background: #112d25db; border: 1px solid #9cb68766; border-radius: 7px; }
+.mini-map > div { display: flex; justify-content: space-between; color: #bbcaa4; font-size: 11px; margin-bottom: 8px; }
+.mini-map > div > span:last-child { color: #dace9d; font-size: 10px; }
+.mini-map svg { display: block; width: 100%; height: 87px; background: #0c241d; border-radius: 3px; }
+.mini-map small { display: block; color: #839d78; font-size: 9px; margin-top: 7px; text-align: center; }
+.map-distance { position: absolute; left: 59px; top: 245px; font-size: 12px; color: #c1cda4; }
+.field-caption { top: 269px; right: 45px; max-width: 180px; font-size: 10px; }
+.dungeon-steps { position: absolute; left: 50%; top: 157px; transform: translateX(-50%); display: flex; gap: 11px; align-items: center; padding: 10px 16px; border: 1px solid #90a37633; border-radius: 5px; background: #122f26cc; color: #79936f; font-size: 11px; }
+.dungeon-steps i { width: 15px; height: 1px; background: #6e875c; }
+.dungeon-steps .current { color: #e0d39f; }
+.dungeon-steps .done { color: #b2cda0; }
+.game-screen:has(.dungeon-steps) .victory-banner { top: 205px; right: 245px; }

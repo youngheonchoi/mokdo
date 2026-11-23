@@ -9,6 +9,9 @@ export class MainMenu extends Scene {
     constructor() { super('MainMenu'); }
 
     create() {
+        this.scene.stop('Game');
+        this.scene.stop('BossRoom');
+        this.scene.stop('BossLobby');
         drawForest(this);
         this.guardian = createActor(this);
         this.guardian.root.setPosition(937, 423).setDepth(423).setScale(1.3);

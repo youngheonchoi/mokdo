@@ -1,9 +1,10 @@
+import { BOSS_ARENA, BOSS_POSITION, DUNGEON_GATE_X, DUNGEON_MAP, FIELD_MAP, SPIKE_TRAPS, inRect, onWalkableFloor, spikeState, type WorldMap, type MapObstacle } from './maps';
 import { emptyBag, rollLoot, type Bag, type Drop } from './items';
 import { cloneProfile, freshProfile, LEVEL_XP, levelOf, statsFor, type Profile } from './progression';
 
 // Simulation owns movement, timing and damage. Phaser only supplies input and renders it.
 export interface Point { x: number; y: number }
-export interface Obstacle extends Point { radius: number; kind: 'tree' | 'rock' }
+export type Obstacle = MapObstacle;
 export interface InputFrame { x: number; y: number; attack: boolean; dodge: boolean; skill?: boolean; collect?: boolean }
 export type Pattern = 'line' | 'circle' | 'safe';
 export interface Warning extends Point {
@@ -26,14 +27,7 @@ export interface Enemy extends Point { id: number; kind: 'melee' | 'ranged'; hp:
 export interface Projectile extends Point { id: number; vx: number; vy: number; life: number }
 
 
-export const OBSTACLES: Obstacle[] = [
-    { x: 186, y: 266, radius: 32, kind: 'tree' },
-    { x: 421, y: 245, radius: 32, kind: 'tree' },
-    { x: 557, y: 596, radius: 30, kind: 'tree' },
-    { x: 245, y: 604, radius: 29, kind: 'tree' },
-    { x: 535, y: 329, radius: 29, kind: 'rock' },
-    { x: 1080, y: 592, radius: 33, kind: 'rock' }
-];
+export const OBSTACLES = FIELD_MAP.obstacles;
 export const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 
 export function isInWarning(point: Point, warning: Warning): boolean {
@@ -48,7 +42,15 @@ export function isInWarning(point: Point, warning: Warning): boolean {
 
 export class CombatWorld {
     player = { x: 320, y: 474, hp: 100, facing: 0, attackCooldown: 0, dodgeCooldown: 0, invulnerable: 0 };
-    boss = { x: 900, y: 390, hp: 1920, maxHp: 1920 };
+    boss = { ...BOSS_POSITION, hp: 1920, maxHp: 1920 };
+    map: WorldMap;
+    get skirmishCleared() { return this.enemies.every(enemy => enemy.hp <= 0); }
+    get dungeonStage() {
+        if (this.result?.won) return 'cleared';
+        if (this.started) return 'boss';
+        if (!this.skirmishCleared) return 'skirmish';
+        return this.player.x < 2550 ? 'spikes' : 'sanctum';
+    }
     mode: AdventureMode;
     profile: Profile;
     revision = 0;
@@ -79,13 +81,15 @@ export class CombatWorld {
 
     constructor(mode: AdventureMode = 'boss', profile: Profile = freshProfile(), random: () => number = Math.random) {
         this.mode = mode;
+        this.map = mode === 'field' ? FIELD_MAP : DUNGEON_MAP;
+        Object.assign(this.player, this.map.spawn);
         this.profile = cloneProfile(profile);
         this.random = random;
         this.player.hp = statsFor(profile.xp).maxHp;
-        if (mode === 'field') {
-            const spawns = [[450, 440], [780, 310], [1010, 480], [710, 580], [360, 315], [1120, 350]];
-            this.enemies = spawns.map(([x, y], i) => ({ id: i, kind: i % 2 ? 'ranged' : 'melee', x, y, spawn: { x, y }, hp: i % 2 ? 64 : 76, maxHp: i % 2 ? 64 : 76, cooldown: 1.5 + i * 0.2, windup: 0, target: { x, y }, respawn: 0 }));
-        }
+        const spawns = mode === 'field'
+            ? [[650, 1050], [1000, 1200], [1300, 850], [1700, 1100], [2120, 770], [2500, 1300], [2760, 760], [2840, 350], [800, 500], [1400, 450], [1950, 450], [2300, 1500]]
+            : [[640, 650], [920, 820], [650, 930], [960, 530]];
+        this.enemies = spawns.map(([x, y], i) => ({ id: i, kind: i % 2 ? 'ranged' : 'melee', x, y, spawn: { x, y }, hp: i % 2 ? 64 : 76, maxHp: i % 2 ? 64 : 76, cooldown: 1.5 + i * 0.2, windup: 0, target: { x, y }, respawn: 0 }));
     }
 
     step(dt: number, input: InputFrame): CombatEvent[] {
@@ -125,7 +129,7 @@ export class CombatWorld {
 
         events.push(...this.collect(input.collect ? 165 : 38));
         if (this.result) return events;
-        if (this.mode === 'boss' && !this.started && p.x > 635) this.started = true;
+        if (this.mode === 'boss' && !this.started && this.skirmishCleared && p.x > 2770 && inRect(p, BOSS_ARENA)) this.started = true;
         if (input.skill && this.skillCooldown <= 0 && !dodging) {
             this.skillCooldown = 5;
             this.skillPose = 0.42;
@@ -141,12 +145,14 @@ export class CombatWorld {
             this.damageTargets(132, statsFor(this.profile.xp).attack, events);
             if (this.result) return events;
         }
-        if (this.mode === 'field') {
-            this.updateEnemies(dt, events);
-            if (p.hp <= 0) this.finish(false);
-            return events;
+        this.updateEnemies(dt, events);
+        if (this.mode === 'boss' && !this.started) {
+            for (const trap of SPIKE_TRAPS) {
+                if (spikeState(this.elapsed, trap.offset) === 'active' && inRect(p, trap, -10)) this.hurt(18, events);
+            }
         }
-        if (!this.started) return events;
+        if (p.hp <= 0) { this.finish(false); return events; }
+        if (this.mode === 'field' || !this.started) return events;
         if (this.boss.hp <= this.boss.maxHp / 2 && this.phase === 1) {
             this.phase = 2;
             this.safeTimer = 0;
@@ -174,8 +180,8 @@ export class CombatWorld {
             this.safeTimer -= dt;
             if (this.nextAttack <= 0) {
                 if (this.phase === 2 && this.safeTimer <= 0) {
-                    const side = this.patternIndex % 2 ? -1 : 1;
-                    this.warning = { kind: 'safe', x: 860 + side * 115, y: 480, angle: 0, remaining: 3.4, duration: 3.4 };
+                    const side = p.x < this.boss.x ? -1 : 1;
+                    this.warning = { kind: 'safe', x: this.boss.x + side * 130, y: this.boss.y + (p.y < this.boss.y ? -130 : 130), angle: 0, remaining: 3.4, duration: 3.4 };
                     this.safeTimer = 13;
                 } else {
                     const kind = this.patternIndex++ % 2 === 0 ? 'line' : 'circle';
@@ -196,8 +202,9 @@ export class CombatWorld {
     private moveAxis(axis: 'x' | 'y', amount: number) {
         const p = this.player;
         const previous = p[axis];
-        p[axis] = Math.max(axis === 'x' ? 82 : 220, Math.min(axis === 'x' ? 1198 : 649, previous + amount));
-        if (OBSTACLES.some(obstacle => distance(p, obstacle) < obstacle.radius + 14)) p[axis] = previous;
+        const bounds = this.map.bounds;
+        p[axis] = Math.max(bounds[axis], Math.min(bounds[axis] + (axis === 'x' ? bounds.width : bounds.height), previous + amount));
+        if (!this.canStand(p) || this.map.obstacles.some(obstacle => distance(p, obstacle) < obstacle.radius + 14)) p[axis] = previous;
     }
 
     collect(radius: number): CombatEvent[] {
@@ -224,32 +231,36 @@ export class CombatWorld {
         return this.result!;
     }
 
+    private canStand(point: Point) {
+        if (!onWalkableFloor(point, this.map)) return false;
+        if (this.mode === 'boss' && !this.skirmishCleared && point.x > DUNGEON_GATE_X - 18) return false;
+        if (this.mode === 'boss' && this.started && !this.result && !inRect(point, BOSS_ARENA, 14)) return false;
+        return true;
+    }
+
     private damageTargets(range: number, damage: number, events: CombatEvent[]) {
-        if (this.mode === 'boss') {
-            if (!this.started || this.boss.hp <= 0 || distance(this.player, this.boss) >= range) return;
-            this.player.facing = Math.atan2(this.boss.y - this.player.y, this.boss.x - this.player.x);
-            this.boss.hp = Math.max(0, this.boss.hp - damage);
+        this.enemies.forEach(enemy => {
+            if (enemy.hp <= 0 || distance(this.player, enemy) >= range) return;
+            enemy.hp = Math.max(0, enemy.hp - damage);
             this.hits++;
-            events.push({ kind: 'hit', x: this.boss.x, y: this.boss.y - 65, value: damage });
-            if (this.boss.hp === 0) {
-                this.firstClear = this.profile.bossClears === 0;
-                this.profile.bossClears++;
-                this.reward(this.boss, true, 180, events);
-                this.warning = null;
-                this.finish(true);
+            events.push({ kind: 'hit', x: enemy.x, y: enemy.y - 42, value: damage });
+            if (enemy.hp === 0) {
+                enemy.windup = 0;
+                enemy.respawn = 14;
+                this.reward(enemy, false, enemy.kind === 'melee' ? 18 : 26, events);
             }
-        } else {
-            this.enemies.forEach(enemy => {
-                if (enemy.hp <= 0 || distance(this.player, enemy) >= range) return;
-                enemy.hp = Math.max(0, enemy.hp - damage);
-                this.hits++;
-                events.push({ kind: 'hit', x: enemy.x, y: enemy.y - 42, value: damage });
-                if (enemy.hp === 0) {
-                    enemy.windup = 0;
-                    enemy.respawn = 14;
-                    this.reward(enemy, false, enemy.kind === 'melee' ? 18 : 26, events);
-                }
-            });
+        });
+        if (this.mode !== 'boss' || !this.started || this.boss.hp <= 0 || distance(this.player, this.boss) >= range) return;
+        this.player.facing = Math.atan2(this.boss.y - this.player.y, this.boss.x - this.player.x);
+        this.boss.hp = Math.max(0, this.boss.hp - damage);
+        this.hits++;
+        events.push({ kind: 'hit', x: this.boss.x, y: this.boss.y - 65, value: damage });
+        if (this.boss.hp === 0) {
+            this.firstClear = this.profile.bossClears === 0;
+            this.profile.bossClears++;
+            this.reward(this.boss, true, 180, events);
+            this.warning = null;
+            this.finish(true);
         }
     }
 
@@ -270,7 +281,7 @@ export class CombatWorld {
         loot.forEach((item, i) => {
             const angle = i * Math.PI * 2 / loot.length + this.random() * 0.4;
             const radius = boss ? 48 + this.random() * 65 : 28 + this.random() * 12;
-            this.drops.push({ ...item, id: this.sequence++, x: Math.max(85, Math.min(1190, point.x + Math.cos(angle) * radius)), y: Math.max(230, Math.min(640, point.y + Math.sin(angle) * radius)), age: 0 });
+            this.drops.push({ ...item, id: this.sequence++, x: Math.max(this.map.bounds.x + 10, Math.min(this.map.bounds.x + this.map.bounds.width - 10, point.x + Math.cos(angle) * radius)), y: Math.max(this.map.bounds.y + 10, Math.min(this.map.bounds.y + this.map.bounds.height - 10, point.y + Math.sin(angle) * radius)), age: 0 });
         });
         events.push({ kind: 'drop', x: point.x, y: point.y, value: loot.length });
     }
@@ -280,7 +291,7 @@ export class CombatWorld {
         this.enemies.forEach(enemy => {
             if (enemy.hp <= 0) {
                 enemy.respawn -= dt;
-                if (enemy.respawn <= 0 && distance(p, enemy.spawn) > 180) {
+                if (this.mode === 'field' && enemy.respawn <= 0 && distance(p, enemy.spawn) > 180) {
                     Object.assign(enemy, enemy.spawn, { hp: enemy.maxHp, cooldown: 1.5, windup: 0 });
                 }
                 return;
@@ -310,8 +321,9 @@ export class CombatWorld {
                 const speed = enemy.kind === 'melee' ? 90 : 62;
                 for (const axis of ['x', 'y'] as const) {
                     const old = enemy[axis];
-                    enemy[axis] = Math.max(axis === 'x' ? 95 : 235, Math.min(axis === 'x' ? 1180 : 635, old + (axis === 'x' ? dx : dy) * speed * sign * dt));
-                    if (OBSTACLES.some(obstacle => distance(enemy, obstacle) < obstacle.radius + 18)) enemy[axis] = old;
+                    const bounds = this.map.bounds;
+                    enemy[axis] = Math.max(bounds[axis] + 14, Math.min(bounds[axis] + (axis === 'x' ? bounds.width : bounds.height) - 14, old + (axis === 'x' ? dx : dy) * speed * sign * dt));
+                    if (!onWalkableFloor(enemy, this.map, 18) || this.map.obstacles.some(obstacle => distance(enemy, obstacle) < obstacle.radius + 18)) enemy[axis] = old;
                 }
             }
             if (separation < (enemy.kind === 'melee' ? 72 : 300) && enemy.cooldown <= 0) {
@@ -322,7 +334,7 @@ export class CombatWorld {
         this.projectiles = this.projectiles.filter(shot => {
             shot.x += shot.vx * dt; shot.y += shot.vy * dt; shot.life -= dt;
             if (distance(p, shot) < 23) { this.hurt(10, events); return false; }
-            return shot.life > 0 && shot.x > 60 && shot.x < 1220 && shot.y > 215 && shot.y < 660 && !OBSTACLES.some(obstacle => distance(shot, obstacle) < obstacle.radius);
+            return shot.life > 0 && onWalkableFloor(shot, this.map, 0) && !this.map.obstacles.some(obstacle => distance(shot, obstacle) < obstacle.radius);
         });
     }
 

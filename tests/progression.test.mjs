@@ -4,6 +4,8 @@ import { loadTS } from './load-ts.mjs';
 const { freshProfile, statsFor, xpProgress, levelOf, ProgressStore, SAVE_KEY, parseProfile } = await loadTS('../src/game/progression.ts');
 const { rollLoot } = await loadTS('../src/game/items.ts');
 const { CombatWorld } = await loadTS('../src/game/combat.ts');
+const { BOSS_POSITION } = await loadTS('../src/game/maps.ts');
+const placeAtBoss = world => { world.enemies.forEach(enemy => enemy.hp = 0); Object.assign(world.player, { x: BOSS_POSITION.x - 100, y: BOSS_POSITION.y }); };
 const idle = { x: 0, y: 0, attack: false, dodge: false };
 function advance(world, seconds, input = idle) {
     const events = [];
@@ -76,12 +78,12 @@ test('melee kills grant XP once, level up heals, loot requires pickup and cannot
 test('range skill hits multiple mobs, respects cooldown and scales with level', () => {
     const p = freshProfile(); p.xp = 660;
     const world = new CombatWorld('field', p);
-    world.enemies.forEach((e, i) => { e.x = 360 + i * 2; e.y = 474; });
+    world.enemies.forEach((e, i) => { e.x = world.player.x + 40 + i * 2; e.y = world.player.y; });
     world.step(0.01, { ...idle, skill: true });
-    assert.equal(world.defeated, 6); assert.equal(world.drops.length, 12);
+    assert.equal(world.defeated, world.enemies.length); assert.equal(world.drops.length, world.enemies.length * 2);
     assert.equal(world.profile.xp, 660); assert.ok(world.skillCooldown > 4.9);
     world.step(0.01, { ...idle, skill: true });
-    assert.equal(world.defeated, 6);
+    assert.equal(world.defeated, world.enemies.length);
 });
 
 test('ranged mobs launch visible projectiles; dodge blocks projectile damage', () => {
@@ -98,19 +100,19 @@ test('ranged mobs launch visible projectiles; dodge blocks projectile damage', (
 
 test('boss death showers loot once, allows collection before results and records first clear', () => {
     const world = new CombatWorld('boss', freshProfile(), () => 0.5);
-    world.started = true; world.boss.hp = 32; world.player.x = 800; world.player.y = 390;
+    world.started = true; world.boss.hp = 32; placeAtBoss(world);
     world.step(0.01, { ...idle, attack: true });
     assert.equal(world.result.won, true); assert.equal(world.firstClear, true);
     assert.equal(world.drops.length, 12); assert.equal(world.profile.bossClears, 1);
     assert.equal(world.profile.bag.core, 0);
     advance(world, 0.3, { ...idle, x: 1, attack: true });
-    assert.ok(world.player.x > 800); assert.equal(world.drops.length, 12);
+    assert.ok(world.player.x > BOSS_POSITION.x - 100); assert.equal(world.drops.length, 12);
     const result = world.leave();
     assert.equal(world.drops.length, 0); assert.equal(result.loot.core, 1);
     assert.equal(world.profile.bag.core, 1); assert.equal(world.profile.bossClears, 1);
     world.leave(); assert.equal(world.profile.bag.core, 1);
     const next = new CombatWorld('boss', world.profile); next.started = true; next.boss.hp = 32;
-    next.player.x = 800; next.player.y = 390; next.step(0.01, { ...idle, attack: true });
+    placeAtBoss(next); next.step(0.01, { ...idle, attack: true });
     assert.equal(next.firstClear, false);
 });
 

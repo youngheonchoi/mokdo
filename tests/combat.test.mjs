@@ -3,6 +3,8 @@ import test from 'node:test';
 import { loadTS } from './load-ts.mjs';
 
 const { CombatWorld, OBSTACLES, distance, isInWarning } = await loadTS('../src/game/combat.ts');
+const { BOSS_POSITION, FIELD_MAP } = await loadTS('../src/game/maps.ts');
+const placeAtBoss = world => { world.enemies.forEach(enemy => enemy.hp = 0); Object.assign(world.player, { x: BOSS_POSITION.x - 100, y: BOSS_POSITION.y }); };
 const idle = { x: 0, y: 0, attack: false, dodge: false };
 const advance = (world, seconds, input = idle) => {
     const events = [];
@@ -22,17 +24,17 @@ test('diagonal movement has the same speed as straight movement', () => {
 
 test('trees, rocks, map borders also block a dodge', () => {
     for (const obstacle of OBSTACLES) {
-        const world = new CombatWorld();
+        const world = new CombatWorld('field');
         world.player.x = obstacle.x - obstacle.radius - 45;
         world.player.y = obstacle.y;
         advance(world, 0.5, { ...idle, x: 1, dodge: true });
         assert.ok(distance(world.player, obstacle) >= obstacle.radius + 14);
     }
-    const world = new CombatWorld();
+    const world = new CombatWorld('field');
     advance(world, 5, { ...idle, x: -1 });
-    assert.equal(world.player.x, 82);
+    assert.equal(world.player.x, FIELD_MAP.bounds.x);
     advance(world, 5, { ...idle, y: 1 });
-    assert.equal(world.player.y, 649);
+    assert.equal(world.player.y, FIELD_MAP.bounds.y + FIELD_MAP.bounds.height);
 });
 
 test('boss waits for entry; attacks have range and cooldown', () => {
@@ -40,7 +42,7 @@ test('boss waits for entry; attacks have range and cooldown', () => {
     advance(world, 5, { ...idle, attack: true });
     assert.equal(world.started, false);
     assert.equal(world.boss.hp, world.boss.maxHp);
-    world.player.x = 800; world.player.y = 390;
+    placeAtBoss(world);
     world.player.attackCooldown = 0;
     world.step(0.01, { ...idle, attack: true });
     const hp = world.boss.hp;
@@ -77,6 +79,7 @@ test('regular hit deals damage once; dodge grants temporary immunity', () => {
 
 test('half health starts phase two with a reachable safe-zone mechanic', () => {
     const world = new CombatWorld();
+    placeAtBoss(world);
     world.started = true; world.boss.hp = world.boss.maxHp / 2;
     advance(world, 0.7);
     assert.equal(world.phase, 2);
@@ -98,7 +101,7 @@ test('safe zone protects the entire player; dodge cannot bypass it', () => {
 
 test('victory freezes combat time, defeat stops simulation and a fresh run resets state', () => {
     const win = new CombatWorld(); win.started = true; win.boss.hp = 32;
-    win.player.x = 800; win.player.y = 390;
+    placeAtBoss(win);
     win.step(0.01, { ...idle, attack: true });
     assert.equal(win.result.won, true);
     assert.equal(win.result.hits, 1);

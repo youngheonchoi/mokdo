@@ -1,5 +1,6 @@
 import { GameObjects, Math as PhaserMath, Scene } from 'phaser';
-import { OBSTACLES } from './combat';
+import { BOSS_POSITION, DUNGEON_GATE_X, SPIKE_TRAPS, TOWN_MAP, spikeState, type WorldMap } from './maps';
+const MENU_PROPS = [{ x: 186, y: 266, kind: 'tree' }, { x: 421, y: 245, kind: 'tree' }, { x: 557, y: 596, kind: 'tree' }, { x: 245, y: 604, kind: 'tree' }, { x: 535, y: 329, kind: 'rock' }, { x: 1080, y: 592, kind: 'rock' }];
 
 const C = { ground: 0x153e35, moss: 0x315c47, leaf: 0x327b55, light: 0x65a365, bark: 0x594d39, stone: 0x78938a };
 
@@ -63,7 +64,7 @@ export function drawForest(scene: Scene) {
     for (let i = 0; i < 15; i++) tree(scene, i * 96 - 25, 205 + Math.sin(i * 3) * 25, 1.1 + random() * 0.3);
     for (let i = 0; i < 14; i++) tree(scene, i * 108 - 32, 790 + Math.sin(i) * 18, 0.9 + random() * 0.3);
     for (const side of [12, 1267]) for (let i = 0; i < 4; i++) tree(scene, side, 340 + i * 110, 1.15);
-    OBSTACLES.forEach(obstacle => obstacle.kind === 'tree' ? tree(scene, obstacle.x, obstacle.y) : rock(scene, obstacle.x, obstacle.y));
+    MENU_PROPS.forEach(obstacle => obstacle.kind === 'tree' ? tree(scene, obstacle.x, obstacle.y) : rock(scene, obstacle.x, obstacle.y));
     rock(scene, 734, 228, 0.65);
     rock(scene, 1125, 276, 0.8);
     for (const [x, y] of [[655, 298], [1174, 502], [140, 567], [447, 596], [660, 624]]) {
@@ -172,4 +173,151 @@ export function drawMonster(actor: Actor, clock: number, kind: 'melee' | 'ranged
         g.fillStyle(0xdecbb1).fillCircle(-12, -46, 6).fillCircle(12, -50, 5).fillCircle(22, -38, 4);
         g.fillStyle(0x234d3c).fillCircle(-5, -22, 2).fillCircle(6, -22, 2);
     }
+}
+
+export function drawPortal(scene: Scene, x: number, y: number, label: string, tint = 0xaad6b6) {
+    const floor = scene.add.graphics().setDepth(1).setPosition(x, y);
+    floor.fillStyle(tint, 0.12).fillEllipse(0, 0, 135, 54);
+    floor.lineStyle(2, tint, 0.7).strokeEllipse(0, 0, 112, 41);
+    floor.lineStyle(1, tint, 0.35).strokeEllipse(0, 0, 140, 57);
+    const gate = scene.add.graphics().setDepth(y).setPosition(x, y);
+    gate.fillStyle(0x577564).fillRoundedRect(-49, -103, 19, 105, 5).fillRoundedRect(30, -103, 19, 105, 5);
+    gate.lineStyle(18, 0x829680).beginPath().arc(0, -91, 40, Math.PI, Math.PI * 2).strokePath();
+    gate.fillStyle(0xd0dbb2, 0.9).fillCircle(-39, -80, 4).fillCircle(39, -80, 4);
+    const light = scene.add.graphics().setPosition(x, y).setDepth(y - 1);
+    light.fillStyle(tint, 0.12).fillEllipse(0, -56, 63, 103);
+    light.fillStyle(tint, 0.19).fillEllipse(0, -56, 40, 91);
+    light.lineStyle(2, tint, 0.8).strokeEllipse(0, -56, 56, 94);
+    scene.tweens.add({ targets: light, alpha: 0.45, duration: 1600, yoyo: true, repeat: -1 });
+    scene.add.text(x, y - 162, label, { fontFamily: 'Arial', fontSize: 15, color: '#e4efd0', stroke: '#173b2d', strokeThickness: 5 }).setOrigin(0.5).setDepth(10000);
+}
+
+export function drawCave(scene: Scene, x: number, y: number) {
+    const g = scene.add.graphics().setPosition(x, y).setDepth(y - 5);
+    g.fillStyle(0x0a241f, 0.4).fillEllipse(0, 0, 182, 47);
+    g.fillStyle(0x4a6559).fillRoundedRect(-87, -96, 174, 108, 28);
+    g.fillStyle(0x6c8270).fillEllipse(-42, -81, 82, 72).fillEllipse(13, -100, 99, 77).fillEllipse(65, -65, 58, 82);
+    g.fillStyle(0x9caa88, 0.5).fillEllipse(-28, -119, 81, 23);
+    g.fillStyle(0x0a211f).fillRoundedRect(-42, -78, 84, 90, { tl: 40, tr: 40, bl: 4, br: 4 });
+    g.fillStyle(0x25463b).fillEllipse(0, 6, 87, 22);
+    g.lineStyle(2, 0xb2c39a, 0.5).lineBetween(-12, -66, 0, -72).lineBetween(0, -72, 12, -66);
+    g.fillStyle(0x82b98e).fillEllipse(-57, -103, 37, 11).fillEllipse(55, -82, 42, 15);
+    for (const dx of [-62, 62]) {
+        g.fillStyle(0x766344).fillRect(dx - 3, -37, 6, 33);
+        g.fillStyle(0xe9c782, 0.15).fillCircle(dx, -43, 18);
+        g.fillStyle(0xf1cb88).fillEllipse(dx, -44, 10, 18);
+    }
+    scene.add.text(x, y - 156, '수호자의 동굴', { fontFamily: 'Arial', fontSize: 16, color: '#e5d8ae', stroke: '#173b2d', strokeThickness: 5 }).setOrigin(0.5).setDepth(10000);
+    scene.add.text(x, y + 25, '동굴 대기실 · 권장 Lv. 3', { fontFamily: 'Arial', fontSize: 12, color: '#d0c6a1', stroke: '#173b2d', strokeThickness: 4 }).setOrigin(0.5).setDepth(10000);
+}
+
+export function drawVillage(scene: Scene) {
+    drawLargeMap(scene, TOWN_MAP);
+    for (const { x, y } of TOWN_MAP.obstacles.filter(obstacle => obstacle.kind === 'house')) {
+        const g = scene.add.graphics().setPosition(x, y).setDepth(y);
+        g.fillStyle(0x0b211e, 0.35).fillEllipse(8, 3, 163, 42);
+        g.fillStyle(0x8d9473).fillRoundedRect(-58, -85, 116, 88, 6);
+        g.fillStyle(0x536e55).fillRect(29, -85, 29, 86);
+        g.fillStyle(0x425f49).fillTriangle(-78, -80, 0, -154, 78, -80);
+        g.fillStyle(0x78936a).fillTriangle(-68, -88, 0, -148, 43, -88);
+        g.lineStyle(4, 0x9baa77).lineBetween(-74, -82, 0, -150).lineBetween(0, -150, 76, -82);
+        g.fillStyle(0x354c37).fillRoundedRect(-13, -45, 29, 47, { tl: 14, tr: 14, bl: 0, br: 0 });
+        g.fillStyle(0xd5c788).fillRect(-43, -57, 18, 21).fillRect(30, -57, 17, 21);
+        g.lineStyle(3, 0x53694d).lineBetween(-34, -59, -34, -34).lineBetween(38, -59, 38, -34);
+    }
+    const fire = scene.add.graphics().setPosition(620, 850).setDepth(850);
+    fire.fillStyle(0xb4a07a).fillEllipse(0, 0, 59, 26);
+    fire.fillStyle(0x654c32).fillEllipse(0, -2, 39, 18);
+    fire.fillStyle(0xefa86c).fillTriangle(-14, -5, 2, -46, 17, -5);
+    fire.fillStyle(0xffd99c).fillTriangle(-6, -4, 4, -29, 10, -4);
+    scene.tweens.add({ targets: fire, alpha: 0.7, duration: 650, yoyo: true, repeat: -1 });
+}
+
+export function drawLargeMap(scene: Scene, map: WorldMap) {
+    const dungeon = map.key === 'dungeon';
+    scene.cameras.main.setBackgroundColor(dungeon ? 0x102725 : 0x173e32);
+    const g = scene.add.graphics().setDepth(-10);
+    g.fillStyle(dungeon ? 0x102725 : 0x1d4939).fillRect(0, 0, map.width, map.height);
+    let seed = 1337;
+    const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    if (dungeon) {
+        for (const room of map.rooms!) {
+            g.fillStyle(0x4c6554).fillRoundedRect(room.x - 12, room.y - 12, room.width + 24, room.height + 24, 20);
+            g.fillStyle(0x2c4c40).fillRect(room.x, room.y, room.width, room.height);
+            g.lineStyle(3, 0x92a17d, 0.4).strokeRect(room.x + 12, room.y + 12, room.width - 24, room.height - 24);
+            for (let x = room.x + 30; x < room.x + room.width - 20; x += 64) for (let y = room.y + 30; y < room.y + room.height - 20; y += 64) {
+                g.fillStyle(random() > 0.5 ? 0x58715c : 0x6c7f60, 0.15).fillRoundedRect(x, y, 53, 51, 5);
+            }
+        }
+        // Erase internal room borders where the corridor joins each chamber.
+        g.fillStyle(0x2c4c40).fillRect(1160, 634, 110, 252).fillRect(2510, 634, 150, 252);
+        g.fillStyle(0x758262, 0.15).fillCircle(BOSS_POSITION.x, BOSS_POSITION.y, 250);
+        g.lineStyle(3, 0xa0af82, 0.4).strokeCircle(BOSS_POSITION.x, BOSS_POSITION.y, 220);
+        g.lineStyle(1, 0x9fa879, 0.3).strokeCircle(BOSS_POSITION.x, BOSS_POSITION.y, 197);
+        for (const [x, y, label] of [[610, 460, '01 · 입구의 파수꾼'], [1840, 565, '02 · 가시의 통로'], [3200, 455, '03 · 수호자의 성소']] as const) {
+            scene.add.text(x, y, label, { fontFamily: 'Arial', fontSize: 20, color: '#cbd4ae', stroke: '#183b30', strokeThickness: 5 }).setOrigin(0.5).setDepth(10000);
+        }
+        for (const x of [1150, 1500, 1850, 2200, 2550]) {
+            const torch = scene.add.graphics().setPosition(x, 595).setDepth(595);
+            torch.fillStyle(0x697b61).fillRoundedRect(-12, -48, 24, 50, 5);
+            torch.fillStyle(0xf3cd85, 0.1).fillCircle(0, -56, 30);
+            torch.fillStyle(0xf1c47f).fillTriangle(-8, -45, 0, -70, 8, -45);
+        }
+    } else {
+        for (let i = 0; i < 45; i++) g.fillStyle(i % 2 ? 0x335b40 : 0x28543b, 0.5).fillEllipse(random() * map.width, random() * map.height, 250 + random() * 350, 160 + random() * 200);
+        // A continuous stone trail gives the large maps a readable eastbound route.
+        g.lineStyle(120, 0x657653, 0.26).beginPath().moveTo(100, map.key === 'town' ? 1000 : 1120).lineTo(map.width - 350, map.key === 'town' ? 950 : 1120).lineTo(map.width - 360, map.key === 'town' ? 950 : 520).strokePath();
+        for (let x = 140; x < map.width - 300; x += 70) {
+            const y = (map.key === 'town' ? 980 : 1120) + Math.sin(x * 0.01) * 21;
+            g.fillStyle(0xa6ae83, 0.36).fillRoundedRect(x, y, 35, 20, 5);
+        }
+        for (let i = 0; i < 2200; i++) {
+            const x = random() * map.width, y = random() * map.height;
+            g.fillStyle(i % 3 ? 0x609360 : 0x91a778, 0.22).fillRect(x, y, 2 + random() * 3, 3 + random() * 5);
+        }
+        for (let x = 0; x < map.width + 120; x += 130) {
+            tree(scene, x, 175 + random() * 35, 1.1);
+            tree(scene, x, map.height + 15 + random() * 30, 1.15);
+        }
+        for (let y = 330; y < map.height; y += 145) {
+            tree(scene, 8, y, 1.15); tree(scene, map.width - 8, y, 1.15);
+        }
+    }
+    for (const obstacle of map.obstacles) {
+        if (obstacle.kind === 'tree') tree(scene, obstacle.x, obstacle.y, 1.15);
+        if (obstacle.kind === 'rock') rock(scene, obstacle.x, obstacle.y, 1.1);
+    }
+}
+
+export function drawDungeonMechanics(g: GameObjects.Graphics, elapsed: number, gateOpen: boolean, bossStarted: boolean, cleared: boolean) {
+    g.clear();
+    for (const trap of SPIKE_TRAPS) {
+        const state = cleared ? 'idle' : spikeState(elapsed, trap.offset);
+        const color = state === 'active' ? 0xe6a68c : state === 'warning' ? 0xe6bb78 : 0x78957e;
+        g.fillStyle(color, state === 'idle' ? 0.12 : 0.27).fillRect(trap.x, trap.y, trap.width, trap.height);
+        g.lineStyle(2, color, state === 'idle' ? 0.25 : 0.85).strokeRect(trap.x + 3, trap.y + 3, trap.width - 6, trap.height - 6);
+        for (let x = trap.x + 18; x < trap.x + trap.width; x += 32) for (let y = trap.y + 24; y < trap.y + trap.height; y += 36) {
+            g.fillStyle(0x0f2a24, 0.7).fillEllipse(x, y, 19, 8);
+            if (state === 'active') {
+                g.fillStyle(0xc5cec0).fillTriangle(x - 8, y, x, y - 29, x + 8, y);
+                g.fillStyle(0x7c9386).fillTriangle(x, y - 29, x + 8, y, x + 2, y);
+            } else if (state === 'warning') g.fillStyle(0xf7cc8c, 0.7).fillCircle(x, y - 2, 3);
+        }
+    }
+    for (const x of [DUNGEON_GATE_X, 2630]) {
+        const locked = x === DUNGEON_GATE_X ? !gateOpen : bossStarted && !cleared;
+        g.fillStyle(0x8a9f7d).fillRect(x - 18, 608, 36, 18).fillRect(x - 18, 894, 36, 18);
+        if (locked) {
+            g.fillStyle(0xc5b48b, 0.18).fillRect(x - 9, 628, 18, 264);
+            g.lineStyle(3, 0xd2c09a, 0.8).lineBetween(x, 628, x, 891);
+            for (let y = 640; y < 891; y += 34) g.lineStyle(2, 0xb3c59d, 0.7).lineBetween(x - 11, y, x + 11, y + 15);
+        }
+    }
+}
+
+export function followExplorer(scene: Scene, target: GameObjects.Container, map: WorldMap) {
+    scene.cameras.main.setBounds(0, 0, map.width, map.height);
+    scene.cameras.main.startFollow(target, true, 0.12, 0.12);
+    scene.cameras.main.setDeadzone(120, 80);
+    scene.cameras.main.centerOn(target.x, target.y);
 }
