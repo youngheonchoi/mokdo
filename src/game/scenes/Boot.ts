@@ -1,10 +1,15 @@
-import { Scene } from 'phaser';
+import { AccountScreen } from './AccountScreen';
 
-export class Boot extends Scene
+export class Boot extends AccountScreen
 {
     constructor ()
     {
         super('Boot');
+    }
+
+    init ()
+    {
+        this.mount('', '', 'login');
     }
 
     preload ()

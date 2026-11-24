@@ -6,10 +6,110 @@ body {
 }
 
 #app {
+    position: relative;
     width: 100%;
     height: 100vh;
     overflow: hidden;
     display: flex;
     justify-content: center;
     align-items: center;
+}
+
+#game-container { width: 100%; height: 100%; }
+.account-overlay {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    box-sizing: border-box;
+    display: flex;
+    padding: 40px 20px;
+    background:
+        linear-gradient(180deg, rgb(12 37 30 / 3%), rgb(12 37 30 / 8%)),
+        url('/assets/mokdo-login-background.png') center center / cover no-repeat;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #f4f5eb;
+}
+.account-panel { width: min(100%, 520px); margin: auto; }
+.account-panel:not(.login-panel) {
+    box-sizing: border-box;
+    padding: clamp(24px, 4vw, 40px);
+    border: 1px solid rgb(255 255 255 / 24%);
+    border-radius: 20px;
+    background: rgb(16 37 31 / 82%);
+    box-shadow: 0 16px 48px rgb(12 37 30 / 18%);
+}
+.account-brand { color: #c7dfa7; font-size: 16px; letter-spacing: 0.3em; font-weight: 700; margin: 0 0 36px; }
+.account-panel h1 { font-size: clamp(26px, 5vw, 36px); line-height: 1.4; margin: 0 0 12px; word-break: keep-all; }
+.account-description, .account-status { font-size: 15px; line-height: 1.7; color: #c3cec4; word-break: keep-all; }
+.account-status { min-height: 52px; margin: 24px 0; }
+.account-button {
+    display: block;
+    width: 100%;
+    min-height: 52px;
+    padding: 14px 20px;
+    margin-top: 12px;
+    border: 1px solid #aac18f;
+    border-radius: 12px;
+    background: #d5e8b8;
+    color: #193328;
+    font: inherit;
+    font-size: 16px;
+    cursor: pointer;
+}
+.account-button[hidden] { display: none; }
+.account-button:hover:enabled { filter: brightness(1.06); }
+.account-button:focus-visible { outline: 3px solid #e9d49d; outline-offset: 4px; }
+.account-button:disabled { opacity: 0.65; cursor: default; }
+.google-login { background: #fff; border-color: #747775; color: #1f1f1f; border-radius: 4px; }
+.secondary { background: transparent; color: #d1dbd0; border-color: #647b69; }
+.character-list { display: grid; gap: 12px; margin: 0 0 24px; }
+.character-card { margin: 0; text-align: left; background: #203c31; border-color: #627b65; color: #f4f5eb; }
+.character-card[aria-pressed="true"] { border-color: #d5e8b8; box-shadow: 0 0 0 2px #d5e8b8; }
+.character-card span { display: block; font-size: 14px; color: #c3cec4; line-height: 1.6; }
+.character-card strong { display: block; font-size: 22px; margin: 6px 0; overflow-wrap: anywhere; }
+.character-card .character-slot { font-size: 12px; color: #c7dfa7; }
+.empty-slot { margin: 0; min-height: 100px; background: transparent; border-style: dashed; color: #c3cec4; }
+
+.account-overlay--login {
+    min-height: 100%;
+}
+.login-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 30px;
+    width: min(100%, 360px);
+    text-align: center;
+}
+.login-panel .account-brand {
+    margin: 0;
+    padding-left: 0.12em;
+    color: #fffdf2;
+    font-size: clamp(56px, 8vw, 88px);
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.12em;
+    text-shadow: 0 3px 14px rgb(19 55 47 / 35%);
+}
+.login-panel .account-button {
+    margin: 0;
+    width: min(100%, 320px);
+    min-height: 54px;
+    box-shadow: 0 4px 20px rgb(19 55 47 / 16%);
+}
+.login-panel .google-login {
+    border-radius: 6px;
+    font-weight: 500;
+}
+.login-panel .secondary { background: #fff; color: #1f1f1f; border-color: #747775; }
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
 }

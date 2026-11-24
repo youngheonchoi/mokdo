@@ -1,3 +1,55 @@
+# MOKDO 개발 실행
+
+현재 구현 범위는 Google 로그인 → 내 캐릭터 선택 화면입니다. 캐릭터 생성·웹툰·마을 입장은 다음 단계이며 화면에서 준비 중으로 표시합니다.
+
+## 로컬 실행
+
+1. `infra`의 PostgreSQL을 실행합니다. 기존 마이그레이션 V1~V6는 그대로 사용합니다.
+2. 백엔드 실행 구성에 `DB_USERNAME`, `DB_PASSWORD`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` 환경변수를 등록합니다. 예시는 `backend/.env.example`을 참고하세요. Spring Boot는 `.env` 파일을 자동으로 읽지 않습니다.
+3. Google Auth Platform에서 **웹 애플리케이션** 클라이언트의 승인된 리디렉션 URI를 `http://localhost:8081/login/oauth2/code/google`로 등록합니다. 요청 범위는 `openid`, `email`입니다.
+4. 백엔드를 재시작합니다. 인증 의존성을 추가했으므로 IntelliJ에서는 Gradle 프로젝트도 새로고침하세요.
+5. 프로젝트 루트에서 `npm run dev-nolog`를 실행하고 `http://localhost:8080`을 엽니다. `127.0.0.1` 대신 `localhost`로 주소를 통일하세요.
+6. Google 로그인 후 캐릭터 선택 화면으로 복귀합니다. 첫 로그인에서는 계정과 Google 연동만 생성되며 캐릭터 목록은 비어 있는 것이 정상입니다.
+
+백엔드는 세션 쿠키를 사용합니다. 로그인 시작은 백엔드 `8081`로 이동하고, 인증 후 프론트 `8080`으로 돌아옵니다. API는 Vite의 `/api` 프록시를 통해 요청합니다. 새로고침 시 `/api/me`로 세션을 확인합니다. 로그인 실패 시 다시 로그인할 수 있는 화면을 표시합니다.
+
+## 백엔드 패키지 구조
+
+- `controller`: HTTP 요청 매핑과 응답 처리
+- `service`: 비즈니스 로직 인터페이스
+- `serviceImpl`: 서비스 구현체, 계정 상태 검사와 트랜잭션 처리
+- `mapper`: DB 조회·저장 SQL과 결과 매핑 (현재 JdbcTemplate 사용)
+- `dto`: 계층 간 데이터 전달 객체
+- `auth`: Spring Security 설정과 세션 로그인 사용자 객체
+
+컨트롤러는 서비스 인터페이스를 주입받고, 서비스 구현체가 mapper를 호출합니다.
+
+## API
+
+| 경로 | 동작 |
+| --- | --- |
+| `GET /api/health` | 비로그인 상태에서도 접근 가능 |
+| `GET /oauth2/authorization/google` | Google 로그인 시작 (브라우저 페이지 이동) |
+| `GET /login/oauth2/code/google` | Spring Security가 처리하는 Google 콜백 |
+| `GET /api/me` | 세션의 내부 계정 `id`, `status` 반환 |
+| `GET /api/characters` | 세션의 계정이 소유한 캐릭터만 슬롯 순으로 반환 |
+| `GET /api/csrf` | 로그아웃 요청에 사용할 CSRF 헤더 이름·토큰 반환 |
+| `POST /api/logout` | CSRF 헤더 필요, 세션 폐기 후 204 반환 |
+
+인증되지 않은 API 요청은 401, 정지·탈퇴 계정은 403을 반환합니다. Google 이메일이 같아도 고유 식별자 `sub`가 다르면 별개의 계정입니다. 동시 첫 로그인의 유니크 충돌은 전체 생성 트랜잭션을 롤백한 뒤 기존 계정을 조회합니다. 브라우저에 Google 토큰이나 Client Secret을 반환하지 않습니다.
+
+## 검증
+
+- `npx tsc --noEmit`
+- `npm run build-nolog`
+- `cd backend` 후 `./gradlew test` (Docker 필요)
+
+백엔드 통합 테스트는 Testcontainers의 별도 PostgreSQL에 실제 Flyway 마이그레이션을 적용합니다. 개발 DB와 Google 자격증명을 사용하지 않습니다. 계정 생성·재로그인·동시 가입·계정 분리·이용 제한·세션 유지·CSRF 로그아웃·OAuth 리디렉션을 확인합니다. Google의 실제 로그인과 토큰 교환은 본인의 브라우저에서 별도로 확인해야 합니다.
+
+배포 시에는 `GOOGLE_REDIRECT_URI`, `MOKDO_FRONTEND_URL`, 프론트의 `VITE_BACKEND_ORIGIN`을 실제 주소로 변경하고 `SESSION_COOKIE_SECURE=true`로 설정하세요. 운영 환경에서는 같은 사이트에서 프론트와 백엔드에 접근하도록 리버스 프록시를 구성하고 `/api`를 백엔드로 전달해야 합니다. Client Secret은 백엔드에만 설정하세요.
+
+---
+
 # Phaser Vite TypeScript Template
 
 This is a Phaser project template that uses Vite for bundling. It supports hot-reloading for quick development workflow, includes TypeScript support and scripts to generate production-ready builds.
