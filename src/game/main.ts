@@ -1,3 +1,5 @@
+import { Hub } from './scenes/Hub';
+import { BossLobby } from './scenes/BossLobby';
 import { Boot } from './scenes/Boot';
 import { GameOver } from './scenes/GameOver';
 import { Game as MainGame } from './scenes/Game';
@@ -13,8 +15,8 @@ import { Preloader } from './scenes/Preloader';
 //  https://docs.phaser.io/api-documentation/typedef/types-core#gameconfig
 const config: Phaser.Types.Core.GameConfig = {
     type: AUTO,
-    width: 1024,
-    height: 768,
+    width: 1280,
+    height: 800,
     parent: 'game-container',
     scale: { mode: Scale.FIT, autoCenter: Scale.CENTER_BOTH },
     backgroundColor: '#028af8',
@@ -26,7 +28,10 @@ const config: Phaser.Types.Core.GameConfig = {
         CharacterCreate,
         IntroStory,
         Village,
+        Hub,
         MainGame,
+        BossLobby,
+        new MainGame('BossRoom'),
         GameOver
     ]
 };

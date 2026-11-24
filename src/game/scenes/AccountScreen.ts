@@ -1,4 +1,5 @@
 import { Scene } from 'phaser';
+import { endAdventure } from '../adventure';
 
 export abstract class AccountScreen extends Scene {
     protected panel: HTMLElement;
@@ -6,6 +7,8 @@ export abstract class AccountScreen extends Scene {
     protected abort: AbortController;
 
     protected mount(title: string, description: string, variant: 'default' | 'login' = 'default'): void {
+        for (const key of ['Hub', 'Game', 'BossRoom', 'BossLobby', 'GameOver']) this.scene.stop(key);
+        endAdventure();
         this.cameras.main.setBackgroundColor('#10251f');
         this.abort = new AbortController();
         const overlay = document.createElement('section');
