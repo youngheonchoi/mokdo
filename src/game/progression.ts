@@ -1,10 +1,11 @@
-import { emptyBag, type Bag } from './items';
+import { QuickslotStore } from './quickslots';
+import { emptyBag, ITEMS, emptyEquipment, parseEquipment, type Equipment, type Bag } from './items';
 
 export const SAVE_KEY = 'mokdo.solo.v1';
 export const LEVEL_XP = [0, 80, 210, 400, 660] as const;
-export interface Profile { version: 1; xp: number; bag: Bag; kills: number; bossClears: number }
-export const freshProfile = (): Profile => ({ version: 1, xp: 0, bag: emptyBag(), kills: 0, bossClears: 0 });
-export const cloneProfile = (profile: Profile): Profile => ({ ...profile, bag: { ...profile.bag } });
+export interface Profile { version: 1; xp: number; bag: Bag; equipment: Equipment; kills: number; bossClears: number }
+export const freshProfile = (): Profile => ({ version: 1, xp: 0, bag: emptyBag(), equipment: emptyEquipment(), kills: 0, bossClears: 0 });
+export const cloneProfile = (profile: Profile): Profile => ({ ...profile, bag: { ...profile.bag }, equipment: { ...profile.equipment } });
 export function levelOf(xp: number) { return LEVEL_XP.filter(required => xp >= required).length || 1; }
 export function statsFor(xp: number) {
     const level = levelOf(xp);
@@ -24,8 +25,8 @@ function validCount(value: unknown): value is number {
 export function parseProfile(raw: string): Profile {
     const p = JSON.parse(raw);
     if (!p || p.version !== 1 || !validCount(p.xp) || p.xp > LEVEL_XP[4] || !validCount(p.kills) || !validCount(p.bossClears) ||
-        !p.bag || !Object.keys(emptyBag()).every(item => validCount(p.bag[item]))) throw new Error('Invalid save');
-    return { version: 1, xp: p.xp, bag: { gold: p.bag.gold, moss: p.bag.moss, shard: p.bag.shard, core: p.bag.core }, kills: p.kills, bossClears: p.bossClears };
+        !p.bag || !Object.keys(ITEMS).every(item => p.bag[item] === undefined && !['gold', 'moss', 'shard', 'core'].includes(item) || validCount(p.bag[item]))) throw new Error('Invalid save');
+    return { version: 1, xp: p.xp, bag: Object.fromEntries(Object.keys(ITEMS).map(id => [id, p.bag[id] ?? 0])) as Bag, equipment: parseEquipment(p.equipment), kills: p.kills, bossClears: p.bossClears };
 }
 
 interface SaveStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
@@ -65,10 +66,13 @@ function browserStorage() {
 }
 export const characterSaveKey = (characterId: string) => `${SAVE_KEY}.character.${encodeURIComponent(characterId)}`;
 // The legacy anonymous save is deliberately left untouched; it has no character owner.
+export let quickslots = new QuickslotStore(null);
 export let progress = new ProgressStore(null);
 export function selectCharacterProgress(characterId: string): void {
     progress = new ProgressStore(browserStorage(), characterSaveKey(characterId));
+    quickslots = new QuickslotStore(browserStorage(), `${characterSaveKey(characterId)}.quickslots`);
 }
 export function clearCharacterProgress(): void {
     progress = new ProgressStore(null);
+    quickslots = new QuickslotStore(null);
 }

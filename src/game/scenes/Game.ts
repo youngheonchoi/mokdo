@@ -1,14 +1,16 @@
+import { updateQuickslotCounts } from '../quickslotView';
+import { focusGameCanvas, hudDialogOpen } from '../inGameHud';
 import { adventureCharacter, adventurerName } from '../adventure';
 import { GameObjects, Input, Scene } from 'phaser';
 import { CombatWorld, type CombatEvent, type InputFrame, type AdventureMode } from '../combat';
 import { createActor, drawAdventurer, drawLargeMap, drawDungeonMechanics, followExplorer, drawGuardian, drawMonster, drawPortal, drawCave, type Actor } from '../world';
 import { BOSS_ARENA } from '../maps';
 import { ITEMS } from '../items';
-import { progress, statsFor, xpProgress } from '../progression';
+import { progress, statsFor, xpProgress, LEVEL_XP, cloneProfile, type Profile } from '../progression';
 import { CAVE_ENTRANCE, FIELD_CAVE_SPAWN, FIELD_RETURN, FIELD_TOWN_SPAWN, nearLandmark } from '../navigation';
 import { mountUI, timeLabel, routeTrail, miniMap, updateMiniMap } from '../ui';
 
-type Keys = Record<'up' | 'down' | 'left' | 'right' | 'w' | 'a' | 's' | 'd' | 'attack' | 'dodge' | 'pause' | 'skill' | 'collect' | 'interact', Input.Keyboard.Key>;
+type Keys = Record<'up' | 'down' | 'left' | 'right' | 'attack' | 'interact', Input.Keyboard.Key>;
 
 export class Game extends Scene {
     world: CombatWorld;
@@ -19,11 +21,6 @@ export class Game extends Scene {
     private nameTag: GameObjects.Text;
     private keys: Keys;
     private ui: HTMLElement;
-    private paused = false;
-    private uiAttack = false;
-    private uiDodge = false;
-    private uiSkill = false;
-    private uiCollect = false;
     private savedRevision = -1;
     private victoryShown = false;
     private monsterViews = new Map<number, { actor: Actor; bar: GameObjects.Graphics }>();
@@ -39,26 +36,20 @@ export class Game extends Scene {
     private bossBar: HTMLElement;
     private hpText: HTMLElement;
     private bossText: HTMLElement;
-    private objective: HTMLElement;
     private patternText: HTMLElement;
     private timer: HTMLElement;
-    private dodgeButton: HTMLButtonElement;
-    private attackButton: HTMLButtonElement;
 
     constructor(key = 'Game') { super(key); }
 
     create(data: { mode?: AdventureMode; entry?: 'town' | 'cave' } = {}) {
         if (!adventureCharacter()) { this.scene.start('CharacterSelect'); return; }
         this.world = new CombatWorld(data.mode ?? 'boss', progress.read());
-        this.uiSkill = false; this.uiCollect = false; this.savedRevision = 0; this.victoryShown = false;
+        this.savedRevision = 0; this.victoryShown = false;
         this.monsterViews = new Map(); this.dropViews = new Map();
         const field = this.world.mode === 'field';
         if (field) Object.assign(this.world.player, data.entry === 'cave' ? FIELD_CAVE_SPAWN : FIELD_TOWN_SPAWN);
         this.interactRequested = false;
         this.gateSeen = false;
-        this.paused = false;
-        this.uiAttack = false;
-        this.uiDodge = false;
         this.phaseSeen = 1;
         this.resultSent = false;
         drawLargeMap(this, this.world.map);
@@ -75,94 +66,87 @@ export class Game extends Scene {
         this.nameTag = this.add.text(0, 0, adventurerName(), { fontFamily: 'Arial, sans-serif', fontSize: 13, color: '#e2f4df', stroke: '#17372e', strokeThickness: 4 }).setOrigin(0.5).setDepth(10000);
 
         this.ui = mountUI(this, `<div class="game-screen">
-            <header class="game-header"><div class="location"><span class="brand-mark">✦</span><div><span class="eyebrow">MOKDO · 첫 번째 모험</span><h1>${field ? '이슬 맺힌 숲길' : '수호자의 지하길'} <span>${field ? 'FIELD' : 'BOSS'}</span></h1></div></div><div class="session-info"><span class="solo-badge">SOLO</span><span id="run-time">00:00</span><button class="return-button" id="leave-adventure">${field ? '회수·마을 복귀' : '회수·보스방 나가기'}</button><button class="icon-button" id="pause-game" aria-label="일시정지">Ⅱ</button></div></header>
+            <header class="game-header"><div class="location"><span class="brand-mark">✦</span><div><span class="eyebrow">MOKDO · 첫 번째 모험</span><h1>${field ? '이슬 맺힌 숲길' : '수호자의 지하길'} <span>${field ? 'FIELD' : 'BOSS'}</span></h1></div></div><div class="session-info"><span class="solo-badge">SOLO</span><span id="run-time">00:00</span><button class="return-button" id="leave-adventure">${field ? '회수·마을 복귀' : '회수·보스방 나가기'}</button></div></header>
             ${routeTrail(field ? 'field' : 'boss')}${miniMap(this.world.map)}
             ${!field ? '<div class="dungeon-steps" aria-label="던전 진행 상황"><span id="stage-skirmish">01 잡몹 전투</span><i></i><span id="stage-spikes">02 가시 통로</span><i></i><span id="stage-boss">03 수호자</span></div>' : ''}
-            ${field ? '<div class="interaction-prompt" id="field-interaction" hidden><span class="key">F</span><div><strong id="interaction-title"></strong><span id="interaction-description"></span></div><button class="button primary" id="use-field-exit">상호작용</button></div>' : ''}
+            ${field ? '<div class="interaction-prompt" id="field-interaction" hidden><span class="key">Space</span><div><strong id="interaction-title"></strong><span id="interaction-description"></span></div><button class="button primary" id="use-field-exit">상호작용</button></div>' : ''}
             <section class="boss-hud" aria-label="보스 상태"><div class="boss-heading"><span class="boss-emblem">✧</span><div><span id="boss-phase" class="eyebrow">${field ? 'HUNTING GROUND · Lv. 1–5' : 'FOREST GUARDIAN · PHASE 01'}</span><h2>${field ? '새싹과 포자가 사는 숲' : '숲의 수호자, 그루'}</h2></div><span id="boss-hp-text">${this.world.boss.hp} / ${this.world.boss.maxHp}</span></div><div class="health-track boss-track"><div id="boss-hp-bar"></div></div><p id="pattern-text">수호자는 아직 잠들어 있습니다</p></section>
-            <aside class="quest"><span class="eyebrow">이번 모험</span><strong id="objective">동쪽의 유적을 찾아가세요</strong><p>${field ? '동쪽 위 동굴에서 F를 누르면 대기실로 이동합니다.' : '이끼 낀 돌길을 따라가 보세요.'}</p><div class="session-rewards"><span id="session-xp">+0 XP</span><span id="session-gold">+0 골드</span></div><p id="save-warning" class="save-warning"></p></aside><div id="pickup-log" class="pickup-log" role="status"></div>
-            <div class="field-caption"><i></i> ${field ? '새싹 슬라임 · 포자 버섯' : '오래된 숲의 유적'}</div><section class="victory-banner" id="victory-banner" hidden><div><span class="eyebrow">GUARDIAN DEFEATED</span><strong>수호자가 풍성한 선물을 남겼어요.</strong><span>가까이 가거나 E로 회수하세요. 복귀 시 모두 회수됩니다.</span></div><button class="button primary" id="claim-boss-loot">모두 회수하고 결과 보기</button></section>
+            <p id="save-warning" class="hud-save-message save-warning"></p><div id="pickup-log" class="pickup-log" role="status"></div>
+            <div class="field-caption"><i></i> ${field ? '새싹 슬라임 · 포자 버섯' : '오래된 숲의 유적'}</div><section class="victory-banner" id="victory-banner" hidden><div><span class="eyebrow">GUARDIAN DEFEATED</span><strong>수호자가 풍성한 선물을 남겼어요.</strong><span>가까이 가면 회수할 수 있어요. 복귀 시 모두 회수됩니다.</span></div><button class="button primary" id="claim-boss-loot">모두 회수하고 결과 보기</button></section>
             <div class="game-toast" id="game-toast" role="status"></div>
-            <footer class="game-footer"><section class="player-hud"><div class="portrait">✦</div><div class="player-vitals"><div><b data-character-name></b><span id="player-level">Lv. 1</span></div><div class="health-track player-track"><div id="player-hp-bar"></div></div><span id="player-hp-text">100 / 100 HP</span><div class="xp-track game-xp-track"><div id="player-xp-bar"></div></div><span id="player-xp-text" class="game-xp-label">0 / 80 XP</span></div></section><div class="movement-hint"><span class="key wide">W A S D</span><span>또는 방향키로 이동</span></div><div class="abilities"><button class="ability" id="collect-button"><span class="ability-icon">✦</span><span class="ability-name">주변 줍기</span><span class="ability-key">E</span></button><button class="ability skill-ability" id="skill-button"><span class="ability-icon">◎</span><span class="ability-name">숲빛 파동</span><span class="ability-key">K</span><span class="cooldown-cover"></span></button><button class="ability" id="attack-button"><span class="ability-icon sword-icon">⚔</span><span class="ability-name">기본 공격</span><span class="ability-key">J / 클릭</span><span class="cooldown-cover"></span></button><button class="ability" id="dodge-button"><span class="ability-icon">≋</span><span class="ability-name">회피</span><span class="ability-key">SPACE</span><span class="cooldown-cover"></span></button></div></footer>
-            <div class="modal-backdrop" id="pause-panel" hidden><section class="modal pause-modal" role="dialog" aria-modal="true" aria-labelledby="pause-title"><span class="eyebrow">TAKE A BREATH</span><h2 id="pause-title">잠깐, 쉬어 가도 괜찮아요.</h2><p>모험은 여기에서 기다리고 있을게요.</p><button class="button primary" id="resume-game">계속 모험하기</button><button class="button secondary" id="return-menu">전리품 회수하고 나가기</button></section></div>
         </div>`);
         this.ui.querySelector('[data-character-name]')!.textContent = adventurerName();
         const get = (id: string) => this.ui.querySelector<HTMLElement>(`#${id}`)!;
         this.hpBar = get('player-hp-bar'); this.bossBar = get('boss-hp-bar');
         this.hpText = get('player-hp-text'); this.bossText = get('boss-hp-text');
-        this.objective = get('objective'); this.patternText = get('pattern-text'); this.timer = get('run-time');
-        this.dodgeButton = get('dodge-button') as HTMLButtonElement;
-        this.attackButton = get('attack-button') as HTMLButtonElement;
-        get('pause-game').onclick = () => this.togglePause();
-        get('resume-game').onclick = () => this.togglePause();
-        get('return-menu').onclick = () => this.finishRun();
+        this.patternText = get('pattern-text'); this.timer = get('run-time');
         get('leave-adventure').onclick = () => this.finishRun();
         if (field) get('use-field-exit').onclick = () => this.interactWithField();
         get('claim-boss-loot').onclick = () => this.finishRun();
-        get('skill-button').onclick = () => { this.uiSkill = true; (get('skill-button') as HTMLButtonElement).blur(); };
-        get('collect-button').onclick = () => { this.uiCollect = true; (get('collect-button') as HTMLButtonElement).blur(); };
-        this.attackButton.onclick = () => { this.uiAttack = true; this.attackButton.blur(); };
-        this.dodgeButton.onclick = () => { this.uiDodge = true; this.dodgeButton.blur(); };
-        this.keys = this.input.keyboard!.addKeys({ up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT', w: 'W', a: 'A', s: 'S', d: 'D', attack: 'J', dodge: 'SPACE', pause: 'ESC', skill: 'K', collect: 'E', interact: 'F' }) as Keys;
-        this.input.keyboard!.addCapture(['SPACE', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
+        this.keys = this.input.keyboard!.addKeys({ up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT', attack: 'CTRL', interact: 'SPACE' }) as Keys;
+        this.input.keyboard!.addCapture(['SPACE', 'CTRL', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
         const interact = (event: KeyboardEvent) => { if (!event.repeat && this.scene.isActive()) this.interactRequested = true; };
-        this.input.keyboard!.on('keydown-F', interact);
-        const pointerAttack = (pointer: Input.Pointer) => { if (pointer.leftButtonDown()) this.uiAttack = true; };
-        this.input.on('pointerdown', pointerAttack);
-        const onHidden = () => { if (document.hidden && this.scene.isActive() && !this.paused && !this.resultSent) this.togglePause(); };
+        this.input.keyboard!.on('keydown-SPACE', interact);
+        const onProfileUpdated = (profile: Profile) => {
+            const oldMaxHp = statsFor(this.world.profile.xp).maxHp;
+            this.world.profile = cloneProfile(profile);
+            const maxHp = statsFor(profile.xp).maxHp;
+            if (maxHp > oldMaxHp) this.world.player.hp = maxHp;
+            this.renderHUD();
+        };
+        this.events.on('profile-updated', onProfileUpdated);
+        this.events.once('shutdown', () => this.events.off('profile-updated', onProfileUpdated));
+        const onHidden = () => { if (document.hidden && this.scene.isActive() && !hudDialogOpen(this.ui) && !this.resultSent) this.ui.querySelector<HTMLButtonElement>('#hud-open-menu')!.click(); };
         document.addEventListener('visibilitychange', onHidden);
         const sleep = () => this.input.keyboard!.resetKeys();
         const wake = () => {
             this.input.keyboard!.resetKeys();
-            this.input.keyboard!.addCapture(['SPACE', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
-            this.paused = false;
-            this.ui.querySelector<HTMLElement>('#pause-panel')!.hidden = true;
+            this.input.keyboard!.addCapture(['SPACE', 'CTRL', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
             this.world.profile = progress.read();
             this.world.player.hp = statsFor(this.world.profile.xp).maxHp;
             this.world.player.invulnerable = 1.2;
             Object.assign(this.world.player, FIELD_CAVE_SPAWN);
             this.world.projectiles = [];
             this.cameras.main.centerOn(this.world.player.x, this.world.player.y);
-            this.uiAttack = false; this.uiDodge = false; this.uiSkill = false; this.uiCollect = false;
             this.interactRequested = false;
             this.renderWorld(); this.renderHUD(); this.renderFieldInteraction();
+            focusGameCanvas(this);
             this.toast('동굴 입구로 돌아왔어요. 사냥과 전리품 기록은 이어집니다.');
         };
         this.events.on('sleep', sleep);
         this.events.on('wake', wake);
         this.events.once('shutdown', () => {
-            this.input.off('pointerdown', pointerAttack);
-            this.input.keyboard!.off('keydown-F', interact);
+            this.input.keyboard!.off('keydown-SPACE', interact);
             this.events.off('sleep', sleep);
             this.events.off('wake', wake);
             document.removeEventListener('visibilitychange', onHidden);
-            this.input.keyboard!.removeCapture(['SPACE', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
+            this.input.keyboard!.removeCapture(['SPACE', 'CTRL', 'UP', 'DOWN', 'LEFT', 'RIGHT']);
             this.input.keyboard!.resetKeys();
         });
-        this.toast(field ? '동쪽 위의 동굴에서 F → 대기실 → 보스방. 서쪽 포탈은 마을로 이어집니다.' : '입구의 몬스터를 정리하고 가시 통로를 지나 수호자의 성소로 향하세요.');
+        this.toast(field ? '동쪽 위의 동굴에서 Space → 대기실 → 보스방. 서쪽 포탈은 마을로 이어집니다.' : '입구의 몬스터를 정리하고 가시 통로를 지나 수호자의 성소로 향하세요.');
         this.cameras.main.fadeIn(400, 10, 30, 24);
         this.renderWorld();
         this.renderHUD();
         this.renderFieldInteraction();
         followExplorer(this, this.hero.root, this.world.map);
+        focusGameCanvas(this);
     }
 
     update(_time: number, delta: number) {
         if (!this.keys || !adventureCharacter()) return;
-        if (Input.Keyboard.JustDown(this.keys.pause)) this.togglePause();
+        if (hudDialogOpen(this.ui)) {
+            this.interactRequested = false;
+            return;
+        }
         const interact = this.interactRequested;
         this.interactRequested = false;
-        if (this.paused || this.resultSent) return;
+        if (this.resultSent) return;
         if (interact && this.interactWithField()) return;
         const input: InputFrame = {
-            x: Number(this.keys.right.isDown || this.keys.d.isDown) - Number(this.keys.left.isDown || this.keys.a.isDown),
-            y: Number(this.keys.down.isDown || this.keys.s.isDown) - Number(this.keys.up.isDown || this.keys.w.isDown),
-            attack: this.keys.attack.isDown || this.uiAttack,
-            dodge: Input.Keyboard.JustDown(this.keys.dodge) || this.uiDodge,
-            skill: Input.Keyboard.JustDown(this.keys.skill) || this.uiSkill,
-            collect: Input.Keyboard.JustDown(this.keys.collect) || this.uiCollect
+            x: Number(this.keys.right.isDown) - Number(this.keys.left.isDown),
+            y: Number(this.keys.down.isDown) - Number(this.keys.up.isDown),
+            attack: this.keys.attack.isDown,
         };
-        this.uiAttack = false; this.uiDodge = false; this.uiSkill = false; this.uiCollect = false;
         this.moving = input.x !== 0 || input.y !== 0;
         this.world.step(Math.min(delta / 1000, 0.05), input).forEach(event => this.showEvent(event));
         this.renderWorld();
@@ -190,23 +174,13 @@ export class Game extends Scene {
         }
     }
 
-    private togglePause() {
-        if (this.resultSent) return;
-        this.paused = !this.paused;
-        this.ui.querySelector<HTMLElement>('#pause-panel')!.hidden = !this.paused;
-        this.uiAttack = false; this.uiDodge = false; this.uiSkill = false; this.uiCollect = false;
-        this.input.keyboard!.resetKeys();
-        if (this.paused) this.ui.querySelector<HTMLButtonElement>('#resume-game')!.focus();
-        else (document.activeElement as HTMLElement | null)?.blur();
-    }
-
     private renderWorld() {
         const w = this.world;
         if (w.mode === 'boss') drawDungeonMechanics(this.mechanicsArt, w.elapsed, w.skirmishCleared, w.started, !!w.result?.won);
         this.hero.root.setPosition(w.player.x, w.player.y).setDepth(w.player.y);
         this.hero.body.alpha = w.player.invulnerable > 0 ? 0.5 + Math.sin(w.elapsed * 45) * 0.25 : 1;
         this.hero.root.setVisible(w.player.hp > 0);
-        drawAdventurer(this.hero, w.elapsed, this.moving || w.dodgeTime > 0, w.player.facing, w.attackPose > 0);
+        drawAdventurer(this.hero, w.elapsed, this.moving, w.player.facing, w.attackPose > 0);
         this.guardian.root.setPosition(w.boss.x, w.boss.y).setDepth(w.boss.y).setVisible(w.mode === 'boss' && w.boss.hp > 0);
         drawGuardian(this.guardian, w.elapsed, w.phase, !!w.warning);
         this.nameTag.setPosition(w.player.x, w.player.y - 83).setVisible(w.player.hp > 0);
@@ -250,29 +224,29 @@ export class Game extends Scene {
 
     private renderHUD() {
         const w = this.world;
+        updateQuickslotCounts(this.ui, w.profile.bag);
         updateMiniMap(this.ui, w.player, this.cameras.main);
         const stats = statsFor(w.profile.xp);
+        this.ui.querySelector('.cheat-status')!.textContent = `Lv. ${stats.level} · ${w.profile.bag.gold.toLocaleString()} 골드`;
+        this.ui.querySelector<HTMLButtonElement>('#cheat-level')!.disabled = stats.level >= LEVEL_XP.length;
         this.hpBar.style.width = `${w.player.hp / stats.maxHp * 100}%`;
         this.bossBar.style.width = `${w.boss.hp / w.boss.maxHp * 100}%`;
-        this.hpText.textContent = `${w.player.hp} / ${stats.maxHp} HP`;
+        this.hpText.textContent = `${w.player.hp} / ${stats.maxHp}`;
         this.bossText.textContent = `${w.boss.hp} / ${w.boss.maxHp}`;
         this.timer.textContent = timeLabel(w.elapsed);
         this.ui.querySelector('#player-level')!.textContent = `Lv. ${stats.level}`;
         const xp = xpProgress(w.profile.xp);
         this.ui.querySelector<HTMLElement>('#player-xp-bar')!.style.width = `${xp.percent}%`;
-        this.ui.querySelector('#player-xp-text')!.textContent = stats.level === 5 ? 'MAX LEVEL' : `${xp.current} / ${xp.required} XP`;
-        this.ui.querySelector('#session-xp')!.textContent = `+${w.earnedXp} XP`;
-        this.ui.querySelector('#session-gold')!.textContent = `+${w.sessionLoot.gold} 골드`;
+        this.ui.querySelector('#player-xp-text')!.textContent = stats.level === 5 ? `${w.profile.xp} / ${LEVEL_XP[4]}` : `${xp.current} / ${xp.required}`;
         this.ui.querySelector('#save-warning')!.textContent = progress.message;
-        this.cooldown(this.ui.querySelector<HTMLButtonElement>('#skill-button')!, w.skillCooldown, 5, 'K');
-        this.objective.textContent = w.started ? '숲의 수호자를 진정시키세요' : '동쪽의 유적을 찾아가세요';
+
         const warning = w.warning;
         this.patternText.textContent = warning ? `${warning.kind === 'safe' ? '초록빛 안으로! · 안전지대' : warning.kind === 'line' ? '옆으로 피하세요 · 뿌리 가르기' : '표식 밖으로! · 숲의 파동'}  ${Math.max(0, warning.remaining).toFixed(1)}s` : w.started ? (w.phase === 2 ? '깨어난 수호자 · 다음 공격에 대비하세요' : '붉은 표식을 보고 피하세요') : '수호자는 아직 잠들어 있습니다';
         this.patternText.className = warning?.kind === 'safe' ? 'safe-text' : warning ? 'danger-text' : '';
         if (w.mode === 'field') {
             this.bossBar.parentElement!.hidden = true;
             this.bossText.textContent = `처치 ${w.defeated}회`;
-            this.objective.textContent = stats.level === 5 ? '성장 완료! 수호자에게 도전해 보세요' : '몬스터를 잡고 레벨을 올리세요';
+
             this.patternText.textContent = '근접 공격은 피하고, 포자탄은 이동으로 피하세요';
             this.patternText.className = '';
         } else {
@@ -289,7 +263,7 @@ export class Game extends Scene {
             this.ui.querySelector('#boss-phase')!.textContent = w.started ? `FOREST GUARDIAN · PHASE 0${w.phase}` : 'GUARDIAN’S DEPTHS · DUNGEON';
             this.bossText.textContent = description[1];
             this.bossBar.parentElement!.hidden = stage === 'skirmish' || stage === 'spikes';
-            this.objective.textContent = stage === 'skirmish' ? '입구의 몬스터를 모두 처치하세요' : stage === 'spikes' ? '가시 통로를 지나 동쪽 성소로 가세요' : description[2];
+
             if (!w.started || stage === 'cleared') {
                 this.patternText.textContent = stage === 'cleared' ? '전리품을 회수한 뒤 동굴 입구로 돌아갈 수 있어요' : description[2];
                 this.patternText.className = stage === 'spikes' ? 'danger-text' : '';
@@ -298,14 +272,6 @@ export class Game extends Scene {
             this.ui.querySelector('#stage-spikes')!.className = stage === 'spikes' ? 'current' : stage === 'skirmish' ? '' : 'done';
             this.ui.querySelector('#stage-boss')!.className = ['sanctum', 'boss', 'cleared'].includes(stage) ? 'current' : '';
         }
-        this.cooldown(this.dodgeButton, w.player.dodgeCooldown, 1.6, 'SPACE');
-        this.cooldown(this.attackButton, w.player.attackCooldown, 0.46, 'J / 클릭');
-    }
-
-    private cooldown(button: HTMLButtonElement, seconds: number, total: number, label: string) {
-        button.querySelector<HTMLElement>('.cooldown-cover')!.style.height = `${seconds / total * 100}%`;
-        button.querySelector('.ability-key')!.textContent = seconds > 0 ? `${seconds.toFixed(1)}s` : label;
-        button.classList.toggle('on-cooldown', seconds > 0);
     }
 
     private showEvent(event: CombatEvent) {
@@ -323,10 +289,6 @@ export class Game extends Scene {
         if (event.kind === 'hit' || event.kind === 'hurt') {
             const text = this.add.text(event.x, event.y, `${event.kind === 'hurt' ? '−' : ''}${event.value}`, { fontFamily: 'Georgia, serif', fontSize: event.kind === 'hit' ? 28 : 24, color: event.kind === 'hit' ? '#f3dc9a' : '#ffb6a4', stroke: '#213b30', strokeThickness: 4 }).setOrigin(0.5).setDepth(11000);
             this.tweens.add({ targets: text, y: event.y - 50, alpha: 0, duration: 700, onComplete: () => text.destroy() });
-        }
-        if (event.kind === 'dodge') {
-            const trail = this.add.ellipse(event.x, event.y - 20, 30, 46, 0xb4efce, 0.28).setDepth(event.y - 1);
-            this.tweens.add({ targets: trail, alpha: 0, scale: 1.6, duration: 260, onComplete: () => trail.destroy() });
         }
         if (event.kind === 'impact') {
             const flash = this.add.graphics().setDepth(3);
@@ -348,7 +310,7 @@ export class Game extends Scene {
     }
 
     private interactWithField(): boolean {
-        if (this.world.mode !== 'field' || this.paused || this.resultSent || this.world.result) return false;
+        if (this.world.mode !== 'field' || hudDialogOpen(this.ui) || this.resultSent || this.world.result) return false;
         if (nearLandmark(this.world.player, CAVE_ENTRANCE)) {
             this.saveProgress();
             this.input.keyboard!.resetKeys();

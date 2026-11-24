@@ -1,12 +1,13 @@
+import { MERCHANTS, nearestMerchant } from '../commerce';
+import { hudDialogOpen } from '../inGameHud';
 import { adventureCharacter, adventurerName } from '../adventure';
 import { Input, Scene } from 'phaser';
 import { createActor, drawAdventurer, drawPortal, drawVillage, followExplorer, type Actor } from '../world';
-import { lootSlots, mountUI, routeTrail, miniMap, updateMiniMap } from '../ui';
-import { progress, statsFor, xpProgress } from '../progression';
+import { mountUI, miniMap, updateMiniMap } from '../ui';
 import { TOWN_MAP } from '../maps';
 import { nearLandmark, TOWN_PORTAL, walkExplorer } from '../navigation';
 
-type TownKeys = Record<'up' | 'down' | 'left' | 'right' | 'w' | 'a' | 's' | 'd' | 'interact' | 'escape', Input.Keyboard.Key>;
+type TownKeys = Record<'up' | 'down' | 'left' | 'right' | 'interact', Input.Keyboard.Key>;
 
 export class Hub extends Scene {
     private hero: Actor;
@@ -30,49 +31,26 @@ export class Hub extends Scene {
         drawVillage(this);
         drawPortal(this, TOWN_PORTAL.x, TOWN_PORTAL.y, '숲길 포탈 · 사냥터');
         this.hero = createActor(this);
+        for (const merchant of MERCHANTS) {
+            const npc = createActor(this);
+            npc.root.setPosition(merchant.x, merchant.y).setDepth(merchant.y).setScale(.9);
+            drawAdventurer(npc, 0, false, Math.PI / 2, false);
+            this.add.ellipse(merchant.x, merchant.y + 2, 58, 22, 0xe3cb82, .15).setDepth(merchant.y - 1);
+            this.add.text(merchant.x, merchant.y - 84, merchant.name, { fontFamily: 'Arial', fontSize: 15, color: '#ead8a5', stroke: '#14382b', strokeThickness: 5 }).setOrigin(.5).setDepth(merchant.y + 1);
+            this.add.text(merchant.x, merchant.y - 64, 'Space · 거래', { fontFamily: 'Arial', fontSize: 11, color: '#bed1a8', stroke: '#14382b', strokeThickness: 4 }).setOrigin(.5).setDepth(merchant.y + 1);
+        }
         this.add.text(620, 780, '여행자의 쉼터', { fontFamily: 'Arial', fontSize: 14, color: '#e3d7ad', stroke: '#14382b', strokeThickness: 5 }).setOrigin(0.5).setDepth(10000);
-        const profile = progress.read();
-        const stats = statsFor(profile.xp);
-        const xp = xpProgress(profile.xp);
         this.ui = mountUI(this, `<main class="town-screen game-screen">
-            <header class="game-header"><div class="location"><span class="brand-mark">✦</span><div><span class="eyebrow">MOKDO · 여행자의 쉼터</span><h1>이끼 마을 <span>SAFE ZONE</span></h1></div></div><div class="session-info"><button class="return-button" id="open-profile">여행자·보관함</button><button class="return-button" id="town-home">캐릭터 선택</button></div></header>
-            ${routeTrail('town')}${miniMap(TOWN_MAP)}
-            <aside class="quest"><span class="eyebrow">모험을 떠나는 길</span><strong>동쪽의 숲길 포탈을 찾아가세요</strong><p>포탈 가까이에서 F를 누르면 사냥터로 이동합니다.<br>사냥터의 동굴을 통해 보스방에 입장할 수 있어요.</p></aside>
-            <div class="map-distance" id="town-distance"></div>
-            <div class="interaction-prompt" id="town-interaction" hidden><span class="key">F</span><div><strong>숲길 포탈</strong><span>이슬 맺힌 숲길로 이동</span></div><button class="button primary" id="use-town-portal">포탈 이용</button></div>
-            <footer class="exploration-footer"><div><b><span data-character-name></span> <span>Lv. ${stats.level}</span></b><span>체력 ${stats.maxHp} · 공격력 ${stats.attack} · 평화로운 마을</span></div><div class="control-strip"><span class="key wide">W A S D</span><span>이동</span><span class="key">F</span><span>상호작용</span></div><span id="town-save" class="${progress.message ? 'save-warning' : ''}">${progress.message || '이 캐릭터의 성장과 전리품은 이 브라우저에 자동 저장됩니다.'}</span></footer>
-            <div class="modal-backdrop" id="profile-panel" hidden><section class="modal profile-modal" role="dialog" aria-modal="true" aria-labelledby="profile-title"><div class="profile-heading"><div><span class="eyebrow">YOUR ADVENTURER</span><h2 id="profile-title"><span data-character-name></span> · Lv. ${stats.level}</h2></div><button class="icon-button" id="close-profile" aria-label="보관함 닫기">×</button></div><div class="profile-stats"><span>최대 체력 <b>${stats.maxHp}</b></span><span>공격력 <b>${stats.attack}</b></span><span>처치 <b>${profile.kills}</b></span><span>보스 클리어 <b>${profile.bossClears}</b></span></div><div class="xp-caption"><span>${stats.level === 5 ? '최고 레벨 달성' : '다음 레벨까지'}</span><b>${stats.level === 5 ? 'MAX' : `${xp.current} / ${xp.required} XP`}</b></div><div class="xp-track"><div style="width:${xp.percent}%"></div></div><h3>모아 온 전리품 ${profile.bossClears ? '<span class="clear-badge">BOSS CLEAR</span>' : ''}</h3><div class="stash-grid">${lootSlots(profile.bag)}</div><p class="profile-note">장착하지 않는 수집 재료입니다. 레벨·경험치·전리품은 계속 유지됩니다.</p><button class="text-button" id="reset-progress">성장 기록 초기화</button></section></div>
-            <div class="modal-backdrop reset-overlay" id="reset-panel" hidden><section class="modal pause-modal" role="dialog" aria-modal="true" aria-labelledby="reset-title"><span class="eyebrow">A FRESH START</span><h2 id="reset-title">이 캐릭터의 성장을 초기화할까요?</h2><p>이 캐릭터의 레벨, 경험치, 전리품과 보스 클리어 기록이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.</p><button class="button secondary" id="cancel-reset">기록 유지하기</button><button class="button danger-button" id="confirm-reset">모든 성장 기록 삭제</button></section></div>
+            ${miniMap(TOWN_MAP)}
+            <div class="interaction-prompt" id="town-interaction" hidden><span class="key">Space</span><div><strong>숲길 포탈</strong><span>이슬 맺힌 숲길로 이동</span></div><button class="button primary" id="use-town-portal">포탈 이용</button></div>
         </main>`);
         this.ui.querySelectorAll('[data-character-name]').forEach(node => { node.textContent = adventurerName(); });
-        const get = (id: string) => this.ui.querySelector<HTMLElement>(`#${id}`)!;
-        const profilePanel = get('profile-panel');
-        const resetPanel = get('reset-panel');
-        const closeProfile = () => { profilePanel.hidden = true; this.input.keyboard!.resetKeys(); get('open-profile').focus(); };
-        get('open-profile').onclick = () => { profilePanel.hidden = false; this.input.keyboard!.resetKeys(); get('close-profile').focus(); };
-        get('close-profile').onclick = closeProfile;
-        get('town-home').onclick = () => this.scene.start('CharacterSelect');
-        get('use-town-portal').onclick = () => this.enterField();
-        const closeReset = () => { resetPanel.hidden = true; get('reset-progress').focus(); };
-        get('reset-progress').onclick = () => { resetPanel.hidden = false; get('cancel-reset').focus(); };
-        get('cancel-reset').onclick = closeReset;
-        get('confirm-reset').onclick = () => {
-            if (progress.reset()) this.scene.restart();
-            else { closeReset(); get('town-save').textContent = progress.message; get('town-save').classList.add('save-warning'); }
-        };
-        resetPanel.onkeydown = event => {
-            if (event.key === 'Escape') { event.stopPropagation(); closeReset(); }
-            if (event.key === 'Tab') { event.preventDefault(); get(document.activeElement?.id === 'cancel-reset' ? 'confirm-reset' : 'cancel-reset').focus(); }
-        };
-        profilePanel.onkeydown = event => {
-            if (event.key === 'Escape') closeProfile();
-            if (event.key === 'Tab') { event.preventDefault(); get(document.activeElement?.id === 'close-profile' ? 'reset-progress' : 'close-profile').focus(); }
-        };
-        this.keys = this.input.keyboard!.addKeys({ up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT', w: 'W', a: 'A', s: 'S', d: 'D', interact: 'F', escape: 'ESC' }) as TownKeys;
+        this.ui.querySelector<HTMLButtonElement>('#use-town-portal')!.onclick = () => this.interactWithTown();
+        this.keys = this.input.keyboard!.addKeys({ up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT', interact: 'SPACE' }) as TownKeys;
         this.input.keyboard!.resetKeys();
         const interact = (event: KeyboardEvent) => { if (!event.repeat) this.interactRequested = true; };
-        this.input.keyboard!.on('keydown-F', interact);
-        this.events.once('shutdown', () => this.input.keyboard!.off('keydown-F', interact));
+        this.input.keyboard!.on('keydown-SPACE', interact);
+        this.events.once('shutdown', () => this.input.keyboard!.off('keydown-SPACE', interact));
         this.input.keyboard!.addCapture(['UP', 'DOWN', 'LEFT', 'RIGHT']);
         this.events.once('shutdown', () => { this.input.keyboard!.removeCapture(['UP', 'DOWN', 'LEFT', 'RIGHT']); this.input.keyboard!.resetKeys(); });
         this.cameras.main.fadeIn(300, 9, 26, 24);
@@ -84,31 +62,42 @@ export class Hub extends Scene {
         if (!this.keys || !adventureCharacter()) return;
         const interact = this.interactRequested;
         this.interactRequested = false;
-        if (this.departing || !this.ui.querySelector<HTMLElement>('#profile-panel')!.hidden) return;
+        if (this.departing || hudDialogOpen(this.ui)) return;
         const dt = Math.min(delta / 1000, 0.05);
         this.clock += dt;
         const input = {
-            x: Number(this.keys.right.isDown || this.keys.d.isDown) - Number(this.keys.left.isDown || this.keys.a.isDown),
-            y: Number(this.keys.down.isDown || this.keys.s.isDown) - Number(this.keys.up.isDown || this.keys.w.isDown)
+            x: Number(this.keys.right.isDown) - Number(this.keys.left.isDown),
+            y: Number(this.keys.down.isDown) - Number(this.keys.up.isDown)
         };
         this.moving = input.x !== 0 || input.y !== 0;
         if (this.moving) this.facing = Math.atan2(input.y, input.x);
-        walkExplorer(this.player, input, dt, TOWN_MAP.obstacles);
+        walkExplorer(this.player, input, dt, [...TOWN_MAP.obstacles, ...MERCHANTS.map(merchant => ({ ...merchant, radius: 18 }))]);
         this.renderExplorer();
+        const merchant = nearestMerchant(this.player);
         const nearby = nearLandmark(this.player, TOWN_PORTAL);
-        this.ui.querySelector<HTMLElement>('#town-interaction')!.hidden = !nearby;
-        if (interact) this.enterField();
+        const prompt = this.ui.querySelector<HTMLElement>('#town-interaction')!;
+        prompt.hidden = !merchant && !nearby;
+        prompt.querySelector('strong')!.textContent = merchant?.name ?? '숲길 포탈';
+        prompt.querySelector('div > span')!.textContent = merchant ? '상품을 구매하거나 보유 아이템을 판매하세요' : '이슬 맺힌 숲길로 이동';
+        prompt.querySelector('button')!.textContent = merchant ? '거래하기' : '포탈 이용';
+        if (interact) this.interactWithTown();
     }
 
     private renderExplorer() {
         this.hero.root.setPosition(this.player.x, this.player.y).setDepth(this.player.y);
         drawAdventurer(this.hero, this.clock, this.moving, this.facing, false);
         updateMiniMap(this.ui, this.player, this.cameras.main);
-        this.ui.querySelector('#town-distance')!.textContent = `동쪽 포탈까지 ${Math.round(Math.hypot(this.player.x - TOWN_PORTAL.x, this.player.y - TOWN_PORTAL.y) / 10)}m · 지도를 확인하세요`;
+    }
+
+    private interactWithTown(): void {
+        if (this.departing || hudDialogOpen(this.ui)) return;
+        const merchant = nearestMerchant(this.player);
+        if (merchant) { this.events.emit('open-shop', merchant); return; }
+        this.enterField();
     }
 
     private enterField() {
-        if (this.departing || !nearLandmark(this.player, TOWN_PORTAL) || !this.ui.querySelector<HTMLElement>('#profile-panel')!.hidden) return;
+        if (this.departing || hudDialogOpen(this.ui) || !nearLandmark(this.player, TOWN_PORTAL)) return;
         this.departing = true;
         this.scene.start('Game', { mode: 'field', entry: 'town' });
     }

@@ -5,7 +5,7 @@ import { cloneProfile, freshProfile, LEVEL_XP, levelOf, statsFor, type Profile }
 // Simulation owns movement, timing and damage. Phaser only supplies input and renders it.
 export interface Point { x: number; y: number }
 export type Obstacle = MapObstacle;
-export interface InputFrame { x: number; y: number; attack: boolean; dodge: boolean; skill?: boolean; collect?: boolean }
+export interface InputFrame { x: number; y: number; attack: boolean; skill?: boolean; collect?: boolean }
 export type Pattern = 'line' | 'circle' | 'safe';
 export interface Warning extends Point {
     kind: Pattern;
@@ -14,7 +14,7 @@ export interface Warning extends Point {
     duration: number;
 }
 export interface CombatEvent extends Point {
-    kind: 'attack' | 'hurt' | 'hit' | 'dodge' | 'impact' | 'skill' | 'levelup' | 'drop' | 'pickup' | 'defeat';
+    kind: 'attack' | 'hurt' | 'hit' | 'impact' | 'skill' | 'levelup' | 'drop' | 'pickup' | 'defeat';
     value?: number;
     pattern?: Pattern;
     angle?: number;
@@ -22,7 +22,7 @@ export interface CombatEvent extends Point {
     amount?: number;
 }
 export type AdventureMode = 'field' | 'boss';
-export interface RunResult { won: boolean; seconds: number; hits: number; dodges: number; mode: AdventureMode; xp: number; kills: number; loot: Bag; firstClear: boolean; retreated?: boolean }
+export interface RunResult { won: boolean; seconds: number; hits: number; mode: AdventureMode; xp: number; kills: number; loot: Bag; firstClear: boolean; retreated?: boolean }
 export interface Enemy extends Point { id: number; kind: 'melee' | 'ranged'; hp: number; maxHp: number; spawn: Point; cooldown: number; windup: number; target: Point; respawn: number }
 export interface Projectile extends Point { id: number; vx: number; vy: number; life: number }
 
@@ -41,7 +41,7 @@ export function isInWarning(point: Point, warning: Warning): boolean {
 }
 
 export class CombatWorld {
-    player = { x: 320, y: 474, hp: 100, facing: 0, attackCooldown: 0, dodgeCooldown: 0, invulnerable: 0 };
+    player = { x: 320, y: 474, hp: 100, facing: 0, attackCooldown: 0, invulnerable: 0 };
     boss = { ...BOSS_POSITION, hp: 1920, maxHp: 1920 };
     map: WorldMap;
     get skirmishCleared() { return this.enemies.every(enemy => enemy.hp <= 0); }
@@ -71,10 +71,7 @@ export class CombatWorld {
     warning: Warning | null = null;
     result: RunResult | null = null;
     attackPose = 0;
-    dodgeTime = 0;
     hits = 0;
-    dodges = 0;
-    private direction = { x: 1, y: 0 };
     private nextAttack = 1.8;
     private patternIndex = 0;
     private safeTimer = 0;
@@ -101,36 +98,21 @@ export class CombatWorld {
         this.skillPose = Math.max(0, this.skillPose - dt);
         const p = this.player;
         p.attackCooldown = Math.max(0, p.attackCooldown - dt);
-        p.dodgeCooldown = Math.max(0, p.dodgeCooldown - dt);
         p.invulnerable = Math.max(0, p.invulnerable - dt);
         this.attackPose = Math.max(0, this.attackPose - dt);
 
         const length = Math.hypot(input.x, input.y);
         const direction = length ? { x: input.x / length, y: input.y / length } : null;
-        if (direction && this.dodgeTime <= 0) {
-            this.direction = direction;
+        if (direction) {
             p.facing = Math.atan2(direction.y, direction.x);
-        }
-        if (input.dodge && p.dodgeCooldown <= 0) {
-            this.dodgeTime = 0.2;
-            p.dodgeCooldown = 1.6;
-            p.invulnerable = 0.32;
-            this.dodges++;
-            events.push({ kind: 'dodge', x: p.x, y: p.y });
-        }
-        const dodging = this.dodgeTime > 0;
-        this.dodgeTime = Math.max(0, this.dodgeTime - dt);
-        const move = dodging ? this.direction : direction;
-        if (move) {
-            const speed = dodging ? 620 : 215;
-            this.moveAxis('x', move.x * speed * dt);
-            this.moveAxis('y', move.y * speed * dt);
+            this.moveAxis('x', direction.x * 215 * dt);
+            this.moveAxis('y', direction.y * 215 * dt);
         }
 
         events.push(...this.collect(input.collect ? 165 : 38));
         if (this.result) return events;
         if (this.mode === 'boss' && !this.started && this.skirmishCleared && p.x > 2770 && inRect(p, BOSS_ARENA)) this.started = true;
-        if (input.skill && this.skillCooldown <= 0 && !dodging) {
+        if (input.skill && this.skillCooldown <= 0) {
             this.skillCooldown = 5;
             this.skillPose = 0.42;
             this.attackPose = 0.18;
@@ -138,7 +120,7 @@ export class CombatWorld {
             this.damageTargets(165, statsFor(this.profile.xp).attack * 2.5, events);
             if (this.result) return events;
         }
-        if (input.attack && p.attackCooldown <= 0 && !dodging) {
+        if (input.attack && p.attackCooldown <= 0) {
             p.attackCooldown = 0.46;
             this.attackPose = 0.18;
             events.push({ kind: 'attack', x: p.x, y: p.y });
@@ -165,7 +147,7 @@ export class CombatWorld {
             if (this.warning.remaining <= 0) {
                 const warning = this.warning;
                 events.push({ kind: 'impact', x: warning.x, y: warning.y, pattern: warning.kind, angle: warning.angle });
-                // Safe-zone mechanics require positioning; dodge cannot bypass them.
+                // Safe-zone mechanics require positioning, including during damage immunity.
                 if (isInWarning(p, warning) && (warning.kind === 'safe' || p.invulnerable <= 0)) {
                     const damage = warning.kind === 'safe' ? 36 : 20;
                     p.hp = Math.max(0, p.hp - damage);
@@ -346,6 +328,6 @@ export class CombatWorld {
     }
 
     private finish(won: boolean) {
-        this.result = { won, seconds: this.elapsed, hits: this.hits, dodges: this.dodges, mode: this.mode, xp: this.earnedXp, kills: this.defeated, loot: { ...this.sessionLoot }, firstClear: this.firstClear };
+        this.result = { won, seconds: this.elapsed, hits: this.hits, mode: this.mode, xp: this.earnedXp, kills: this.defeated, loot: { ...this.sessionLoot }, firstClear: this.firstClear };
     }
 }

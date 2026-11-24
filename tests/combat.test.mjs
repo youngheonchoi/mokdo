@@ -5,7 +5,7 @@ import { loadTS } from './load-ts.mjs';
 const { CombatWorld, OBSTACLES, distance, isInWarning } = await loadTS('../src/game/combat.ts');
 const { BOSS_POSITION, FIELD_MAP } = await loadTS('../src/game/maps.ts');
 const placeAtBoss = world => { world.enemies.forEach(enemy => enemy.hp = 0); Object.assign(world.player, { x: BOSS_POSITION.x - 100, y: BOSS_POSITION.y }); };
-const idle = { x: 0, y: 0, attack: false, dodge: false };
+const idle = { x: 0, y: 0, attack: false };
 const advance = (world, seconds, input = idle) => {
     const events = [];
     for (let elapsed = 0; elapsed < seconds - 0.00001; elapsed += 0.01) events.push(...world.step(0.01, input));
@@ -22,12 +22,12 @@ test('diagonal movement has the same speed as straight movement', () => {
     assert.ok(Math.abs(distance(origin, straight.player) - distance(origin, diagonal.player)) < 0.001);
 });
 
-test('trees, rocks, map borders also block a dodge', () => {
+test('trees, rocks and map borders block walking', () => {
     for (const obstacle of OBSTACLES) {
         const world = new CombatWorld('field');
         world.player.x = obstacle.x - obstacle.radius - 45;
         world.player.y = obstacle.y;
-        advance(world, 0.5, { ...idle, x: 1, dodge: true });
+        advance(world, 0.5, { ...idle, x: 1 });
         assert.ok(distance(world.player, obstacle) >= obstacle.radius + 14);
     }
     const world = new CombatWorld('field');
@@ -61,20 +61,21 @@ test('circle and directional line use the telegraphed hit geometry', () => {
     assert.equal(isInWarning({ x: 900, y: 490 }, { ...warning('line'), angle: Math.PI / 2 }), true);
 });
 
-test('regular hit deals damage once; dodge grants temporary immunity', () => {
+test('regular hit deals damage once and removed dash input grants no movement or immunity', () => {
     const normal = new CombatWorld(); normal.started = true;
     normal.warning = warning('circle', normal.player.x, normal.player.y);
     normal.step(0.01, idle);
     assert.equal(normal.player.hp, 80);
     advance(normal, 0.5);
     assert.equal(normal.player.hp, 80);
-    const dodged = new CombatWorld(); dodged.started = true;
-    dodged.warning = warning('circle', dodged.player.x, dodged.player.y);
-    dodged.step(0.01, { ...idle, dodge: true });
-    assert.equal(dodged.player.hp, 100);
-    assert.equal(dodged.dodges, 1);
-    dodged.step(0.01, { ...idle, dodge: true });
-    assert.equal(dodged.dodges, 1);
+    const removedDash = new CombatWorld(); removedDash.started = true;
+    const origin = { x: removedDash.player.x, y: removedDash.player.y };
+    removedDash.warning = warning('circle', origin.x, origin.y);
+    const events = removedDash.step(0.01, { ...idle, dodge: true });
+    assert.equal(removedDash.player.hp, 80);
+    assert.equal(removedDash.player.x, origin.x);
+    assert.equal(removedDash.player.y, origin.y);
+    assert.ok(events.every(event => event.kind !== 'dodge'));
 });
 
 test('half health starts phase two with a reachable safe-zone mechanic', () => {
@@ -88,14 +89,15 @@ test('half health starts phase two with a reachable safe-zone mechanic', () => {
     assert.ok(distance(world.player, world.warning) < 3.4 * 215);
 });
 
-test('safe zone protects the entire player; dodge cannot bypass it', () => {
+test('safe zone protects the entire player; damage immunity cannot bypass it', () => {
     const inside = new CombatWorld(); inside.started = true;
     inside.warning = warning('safe', inside.player.x, inside.player.y);
     inside.step(0.01, idle);
     assert.equal(inside.player.hp, 100);
     const outside = new CombatWorld(); outside.started = true;
     outside.warning = warning('safe', 900, 390);
-    outside.step(0.01, { ...idle, dodge: true });
+    outside.player.invulnerable = 1;
+    outside.step(0.01, idle);
     assert.equal(outside.player.hp, 64);
 });
 

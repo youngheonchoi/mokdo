@@ -6,7 +6,7 @@ const { rollLoot } = await loadTS('../src/game/items.ts');
 const { CombatWorld } = await loadTS('../src/game/combat.ts');
 const { BOSS_POSITION } = await loadTS('../src/game/maps.ts');
 const placeAtBoss = world => { world.enemies.forEach(enemy => enemy.hp = 0); Object.assign(world.player, { x: BOSS_POSITION.x - 100, y: BOSS_POSITION.y }); };
-const idle = { x: 0, y: 0, attack: false, dodge: false };
+const idle = { x: 0, y: 0, attack: false };
 function advance(world, seconds, input = idle) {
     const events = [];
     for (let time = 0; time < seconds; time += 0.01) events.push(...world.step(0.01, input));
@@ -106,7 +106,7 @@ test('range skill hits multiple mobs, respects cooldown and scales with level', 
     assert.equal(world.defeated, world.enemies.length);
 });
 
-test('ranged mobs launch visible projectiles; dodge blocks projectile damage', () => {
+test('ranged mobs launch visible projectiles and damage an unprotected player', () => {
     const world = new CombatWorld('field');
     world.enemies.forEach(e => { e.hp = 0; e.respawn = 999; });
     const archer = world.enemies[1]; archer.hp = 64; archer.x = 850; archer.y = 450;
@@ -115,7 +115,8 @@ test('ranged mobs launch visible projectiles; dodge blocks projectile damage', (
     world.step(0.01, idle); assert.equal(world.projectiles.length, 1);
     advance(world, 0.7); assert.equal(world.player.hp, 90);
     world.projectiles.push({ id: 1000, x: world.player.x, y: world.player.y, vx: 0, vy: 0, life: 2 });
-    world.step(0.01, { ...idle, dodge: true }); assert.equal(world.player.hp, 90);
+    world.player.invulnerable = 0;
+    world.step(0.01, idle); assert.equal(world.player.hp, 80);
 });
 
 test('boss death showers loot once, allows collection before results and records first clear', () => {
