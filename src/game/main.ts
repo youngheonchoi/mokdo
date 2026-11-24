@@ -3,6 +3,9 @@ import { GameOver } from './scenes/GameOver';
 import { Game as MainGame } from './scenes/Game';
 import { MainMenu } from './scenes/MainMenu';
 import { CharacterSelect } from './scenes/CharacterSelect';
+import { CharacterCreate } from './scenes/CharacterCreate';
+import { IntroStory } from './scenes/IntroStory';
+import { Village } from './scenes/Village';
 import { AUTO, Game, Scale } from 'phaser';
 import { Preloader } from './scenes/Preloader';
 
@@ -20,6 +23,9 @@ const config: Phaser.Types.Core.GameConfig = {
         Preloader,
         MainMenu,
         CharacterSelect,
+        CharacterCreate,
+        IntroStory,
+        Village,
         MainGame,
         GameOver
     ]

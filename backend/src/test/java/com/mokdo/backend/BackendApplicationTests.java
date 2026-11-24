@@ -9,6 +9,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import com.mokdo.backend.service.AccountLoginService;
+import com.mokdo.backend.service.CharacterService;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.MediaType;
 import com.mokdo.backend.mapper.AccountMapper;
 import com.mokdo.backend.auth.MokdoOidcUser;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,9 +39,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {
@@ -61,6 +66,7 @@ class BackendApplicationTests {
 
     @Autowired WebApplicationContext context;
     @Autowired AccountLoginService accounts;
+    @Autowired CharacterService characters;
     @Autowired AccountMapper mapper;
     @Autowired TransactionTemplate transactions;
     @Autowired JdbcTemplate jdbc;
@@ -193,6 +199,186 @@ class BackendApplicationTests {
                         "redirect_uri=http://localhost:8081/login/oauth2/code/google")));
         mvc.perform(get("/login/oauth2/code/google").param("code", "invalid").param("state", "invalid"))
                 .andExpect(redirectedUrl("http://localhost:8080?auth=failed"));
+    }
+
+    @Test
+    void nameAvailabilityAndCreationEnforceGlobalCaseInsensitiveUniqueness() throws Exception {
+        UUID mine = accounts.login("creator", null, "127.0.0.1");
+        UUID other = accounts.login("another-creator", null, "127.0.0.1");
+        mvc.perform(get("/api/characters/name-availability").param("name", "Alpha")
+                        .with(oidcLogin().oidcUser(principal(mine))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.available").value(true));
+        mvc.perform(post("/api/characters").with(oidcLogin().oidcUser(principal(mine))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"Alpha\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.name").value("Alpha"))
+                .andExpect(jsonPath("$.slotNo").value(1))
+                .andExpect(jsonPath("$.appearanceCode").value("STICK_FIGURE"))
+                .andExpect(jsonPath("$.introCompletedAt").isEmpty());
+        mvc.perform(get("/api/characters/name-availability").param("name", "alpha")
+                        .with(oidcLogin().oidcUser(principal(other))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.available").value(false));
+        mvc.perform(post("/api/characters").with(oidcLogin().oidcUser(principal(other))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"alpha\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("nickname_taken"));
+    }
+
+    @Test
+    void invalidNamesAreRejectedForBothCheckAndCreate() throws Exception {
+        var user = principal(accounts.login("invalid-name-user", null, "127.0.0.1"));
+        for (String name : List.of("a", "abcdefghijklm", "공 백", "bad!", "😀😀", "ㄱㄴ", "")) {
+            mvc.perform(get("/api/characters/name-availability").param("name", name)
+                            .with(oidcLogin().oidcUser(user)))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("nickname_invalid"));
+        }
+        mvc.perform(post("/api/characters").with(oidcLogin().oidcUser(user)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/characters").with(oidcLogin().oidcUser(user)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"bad!\"}"))
+                .andExpect(status().isBadRequest());
+        var created = characters.create(user, "  숲속친구12  ");
+        assertThat(created.name()).isEqualTo("숲속친구12");
+    }
+
+    @Test
+    void deleteRequiresOwnershipAndExactNameAndRetainsDeletedRow() throws Exception {
+        var owner = principal(accounts.login("delete-owner", null, "127.0.0.1"));
+        var other = principal(accounts.login("delete-other", null, "127.0.0.1"));
+        var character = characters.create(owner, "MyHero");
+        String path = "/api/characters/" + character.id();
+        mvc.perform(delete(path).with(oidcLogin().oidcUser(other)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"confirmationName\":\"MyHero\"}"))
+                .andExpect(status().isNotFound());
+        for (String confirmation : List.of("myhero", "MyHero ", "", "다른이름")) {
+            mvc.perform(delete(path).with(oidcLogin().oidcUser(owner)).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"confirmationName\":\"" + confirmation + "\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("confirmation_mismatch"));
+        }
+        assertThat(characters.findMine(owner)).hasSize(1);
+        mvc.perform(delete(path).with(oidcLogin().oidcUser(owner)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"confirmationName\":\"MyHero\"}"))
+                .andExpect(status().isNoContent());
+        assertThat(characters.findMine(owner)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT status FROM game_character WHERE id = ?", String.class, character.id()))
+                .isEqualTo("DELETED");
+        assertThat(characters.isNameAvailable(other, "myhero")).isTrue();
+        var replacement = characters.create(owner, "MyHero");
+        assertThat(replacement.id()).isNotEqualTo(character.id());
+        assertThat(replacement.slotNo()).isEqualTo(character.slotNo());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM game_character", Integer.class)).isEqualTo(2);
+        mvc.perform(delete(path).with(oidcLogin().oidcUser(owner)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"confirmationName\":\"MyHero\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void characterMutationsRequireCsrfAndAuthenticatedActiveAccount() throws Exception {
+        var user = principal(accounts.login("csrf-creator", null, "127.0.0.1"));
+        var character = characters.create(user, "토끼친구");
+        mvc.perform(post("/api/characters").with(oidcLogin().oidcUser(user))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"고양이\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete("/api/characters/" + character.id()).with(oidcLogin().oidcUser(user))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"confirmationName\":\"토끼친구\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/characters").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"고양이\"}"))
+                .andExpect(status().isUnauthorized());
+        jdbc.update("UPDATE account SET status = 'BAN' WHERE id = ?", user.getAccountId());
+        mvc.perform(post("/api/characters").with(oidcLogin().oidcUser(user)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"고양이\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete("/api/characters/" + character.id()).with(oidcLogin().oidcUser(user)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"confirmationName\":\"토끼친구\"}"))
+                .andExpect(status().isForbidden());
+        assertThat(jdbc.queryForObject("SELECT status FROM game_character WHERE id = ?", String.class, character.id()))
+                .isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void concurrentCreationsForOneAccountHaveDistinctSlots() throws Exception {
+        var user = principal(accounts.login("parallel-creator", null, "127.0.0.1"));
+        var start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(6)) {
+            var results = java.util.stream.IntStream.range(0, 6).mapToObj(index -> executor.submit(() -> {
+                start.await();
+                return characters.create(user, "친구" + index);
+            })).toList();
+            start.countDown();
+            for (var result : results) result.get(20, TimeUnit.SECONDS);
+        }
+        assertThat(characters.findMine(user)).extracting(item -> item.slotNo())
+                .containsExactly(1, 2, 3, 4, 5, 6);
+    }
+
+    @Test
+    void concurrentNameRaceAcrossAccountsHasOnlyOneWinner() throws Exception {
+        var first = principal(accounts.login("race-first", null, "127.0.0.1"));
+        var second = principal(accounts.login("race-second", null, "127.0.0.1"));
+        assertThat(characters.isNameAvailable(first, "SharedName")).isTrue();
+        assertThat(characters.isNameAvailable(second, "SharedName")).isTrue();
+        var start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var results = List.of(first, second).stream().map(user -> executor.submit(() -> {
+                start.await();
+                try {
+                    characters.create(user, "SharedName");
+                    return true;
+                } catch (ResponseStatusException exception) {
+                    assertThat(exception.getStatusCode().value()).isEqualTo(409);
+                    return false;
+                }
+            })).toList();
+            start.countDown();
+            int winners = 0;
+            for (var result : results) if (result.get(20, TimeUnit.SECONDS)) winners++;
+            assertThat(winners).isEqualTo(1);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM game_character", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void introCompletionIsPerCharacterAndKeepsFirstCompletionTime() throws Exception {
+        var owner = principal(accounts.login("intro-owner", null, "127.0.0.1"));
+        var first = characters.create(owner, "첫여행자");
+        var second = characters.create(owner, "다음여행자");
+        String detail = "/api/characters/" + first.id();
+        mvc.perform(get(detail).with(oidcLogin().oidcUser(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.introCompletedAt").isEmpty());
+        mvc.perform(post(detail + "/intro-completion").with(oidcLogin().oidcUser(owner)))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(detail + "/intro-completion").with(oidcLogin().oidcUser(owner)).with(csrf()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.introCompletedAt").isNotEmpty());
+        var completedAt = characters.findMineById(owner, first.id()).introCompletedAt();
+        assertThat(completedAt).isNotNull();
+        mvc.perform(post(detail + "/intro-completion").with(oidcLogin().oidcUser(owner)).with(csrf()))
+                .andExpect(status().isOk());
+        assertThat(characters.findMineById(owner, first.id()).introCompletedAt()).isEqualTo(completedAt);
+        assertThat(characters.findMineById(owner, second.id()).introCompletedAt()).isNull();
+    }
+
+    @Test
+    void introCannotBeReadOrCompletedForOtherOwnersDeletedCharactersOrBannedAccounts() throws Exception {
+        var owner = principal(accounts.login("intro-active", null, "127.0.0.1"));
+        var other = principal(accounts.login("intro-other", null, "127.0.0.1"));
+        var character = characters.create(owner, "주인있는친구");
+        String detail = "/api/characters/" + character.id();
+        mvc.perform(get(detail).with(oidcLogin().oidcUser(other))).andExpect(status().isNotFound());
+        mvc.perform(post(detail + "/intro-completion").with(oidcLogin().oidcUser(other)).with(csrf()))
+                .andExpect(status().isNotFound());
+        mvc.perform(post(detail + "/intro-completion").with(csrf())).andExpect(status().isUnauthorized());
+        jdbc.update("UPDATE account SET status = 'BAN' WHERE id = ?", owner.getAccountId());
+        mvc.perform(post(detail + "/intro-completion").with(oidcLogin().oidcUser(owner)).with(csrf()))
+                .andExpect(status().isForbidden());
+        jdbc.update("UPDATE account SET status = 'ACTIVE' WHERE id = ?", owner.getAccountId());
+        assertThat(characters.findMineById(owner, character.id()).introCompletedAt()).isNull();
+        characters.delete(owner, character.id(), character.name());
+        mvc.perform(get(detail).with(oidcLogin().oidcUser(owner))).andExpect(status().isNotFound());
+        mvc.perform(post(detail + "/intro-completion").with(oidcLogin().oidcUser(owner)).with(csrf()))
+                .andExpect(status().isNotFound());
     }
 
     private MokdoOidcUser principal(UUID accountId) {

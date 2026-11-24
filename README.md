@@ -1,15 +1,15 @@
 # MOKDO 개발 실행
 
-현재 구현 범위는 Google 로그인 → 내 캐릭터 선택 화면입니다. 캐릭터 생성·웹툰·마을 입장은 다음 단계이며 화면에서 준비 중으로 표시합니다.
+현재 구현 범위는 Google 로그인 → 캐릭터 선택·생성·삭제 → 캐릭터별 최초 인트로 웹툰 → 임시 마을 화면입니다. 캐릭터 모델은 굵은 선의 임시 졸라맨을 사용하며, 마을 진입 전 화면은 공통 배경을 사용합니다. 실제 마을 플레이는 다음 단계입니다.
 
 ## 로컬 실행
 
-1. `infra`의 PostgreSQL을 실행합니다. 기존 마이그레이션 V1~V6는 그대로 사용합니다.
+1. `infra`의 PostgreSQL을 실행합니다. 기존 V1~V6에 더해 V7 마이그레이션이 적용됩니다.
 2. 백엔드 실행 구성에 `DB_USERNAME`, `DB_PASSWORD`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` 환경변수를 등록합니다. 예시는 `backend/.env.example`을 참고하세요. Spring Boot는 `.env` 파일을 자동으로 읽지 않습니다.
 3. Google Auth Platform에서 **웹 애플리케이션** 클라이언트의 승인된 리디렉션 URI를 `http://localhost:8081/login/oauth2/code/google`로 등록합니다. 요청 범위는 `openid`, `email`입니다.
 4. 백엔드를 재시작합니다. 인증 의존성을 추가했으므로 IntelliJ에서는 Gradle 프로젝트도 새로고침하세요.
 5. 프로젝트 루트에서 `npm run dev-nolog`를 실행하고 `http://localhost:8080`을 엽니다. `127.0.0.1` 대신 `localhost`로 주소를 통일하세요.
-6. Google 로그인 후 캐릭터 선택 화면으로 복귀합니다. 첫 로그인에서는 계정과 Google 연동만 생성되며 캐릭터 목록은 비어 있는 것이 정상입니다.
+6. Google 로그인 후 캐릭터 선택 화면으로 복귀합니다. 첫 로그인에서는 계정과 Google 연동만 생성되며 캐릭터 목록은 비어 있는 것이 정상입니다. 캐릭터 생성 버튼에서 닉네임 중복 확인 후 생성할 수 있습니다.
 
 백엔드는 세션 쿠키를 사용합니다. 로그인 시작은 백엔드 `8081`로 이동하고, 인증 후 프론트 `8080`으로 돌아옵니다. API는 Vite의 `/api` 프록시를 통해 요청합니다. 새로고침 시 `/api/me`로 세션을 확인합니다. 로그인 실패 시 다시 로그인할 수 있는 화면을 표시합니다.
 
@@ -32,11 +32,32 @@
 | `GET /oauth2/authorization/google` | Google 로그인 시작 (브라우저 페이지 이동) |
 | `GET /login/oauth2/code/google` | Spring Security가 처리하는 Google 콜백 |
 | `GET /api/me` | 세션의 내부 계정 `id`, `status` 반환 |
-| `GET /api/characters` | 세션의 계정이 소유한 캐릭터만 슬롯 순으로 반환 |
+| `GET /api/characters` | 세션의 계정이 소유한 활성 캐릭터만 슬롯 순으로 반환 |
+| `GET /api/characters/{id}` | 소유한 활성 캐릭터의 정보와 웹툰 완료 상태 조회 |
+| `POST /api/characters/{id}/intro-completion` | CSRF 헤더 필요, 캐릭터의 최초 웹툰 완료 시각 저장 (재요청 시 기존 시각 유지) |
+| `GET /api/characters/name-availability?name=...` | 전체 활성 캐릭터의 닉네임 중복 확인 |
+| `POST /api/characters` | `{ "name": "닉네임" }`, CSRF 헤더 필요, 생성 후 201 반환 |
+| `DELETE /api/characters/{id}` | `{ "confirmationName": "정확한 캐릭터명" }`, CSRF 헤더 필요, 상태 변경 후 204 반환 |
 | `GET /api/csrf` | 로그아웃 요청에 사용할 CSRF 헤더 이름·토큰 반환 |
 | `POST /api/logout` | CSRF 헤더 필요, 세션 폐기 후 204 반환 |
 
 인증되지 않은 API 요청은 401, 정지·탈퇴 계정은 403을 반환합니다. Google 이메일이 같아도 고유 식별자 `sub`가 다르면 별개의 계정입니다. 동시 첫 로그인의 유니크 충돌은 전체 생성 트랜잭션을 롤백한 뒤 기존 계정을 조회합니다. 브라우저에 Google 토큰이나 Client Secret을 반환하지 않습니다.
+
+## 캐릭터 생성·삭제
+
+닉네임은 앞뒤 공백 제거·NFC 정규화 후 한글 완성형·영문·숫자 2~12자를 허용합니다. 전체 사용자 기준으로 영문 대소문자를 구분하지 않습니다. 생성 화면에서 중복 확인 후 닉네임을 수정하면 다시 확인해야 합니다. 확인 결과가 이름을 예약하지는 않으므로 생성 시 서버와 DB 유니크 인덱스에서도 중복을 차단합니다.
+
+삭제 버튼을 누르면 확인창을 열고, 캐릭터명을 대소문자·공백까지 정확하게 입력해야 확정할 수 있습니다. 서버는 소유자를 확인하고 `status`를 `ACTIVE`에서 `DELETED`로 변경합니다. 삭제된 행은 보존하고 캐릭터 목록에서는 제외합니다. 삭제된 닉네임과 슬롯은 재사용할 수 있습니다.
+
+`V7__game_charactor.sql`은 상태 컬럼과 활성 캐릭터의 닉네임·슬롯 유니크 인덱스를 추가합니다. 기존 데이터에 대소문자·앞뒤 공백을 제외하고 같은 활성 닉네임이 있다면 마이그레이션 전에 정리해야 하며, 마이그레이션이 임의로 이름을 변경하지는 않습니다.
+
+## 임시 인트로 웹툰
+
+캐릭터 선택 후 인트로 미완료 캐릭터는 4컷 세로 스크롤 웹툰을 표시합니다. 우측 상단 `SKIP`은 스크롤과 관계없이 고정됩니다. 마지막 `마을로 가기`와 `SKIP` 모두 서버에 `intro_completed_at`을 저장한 뒤 임시 마을로 이동합니다. 저장에 실패하면 웹툰에서 재시도할 수 있으며, 캐릭터 선택으로 돌아가기만 하면 완료로 처리하지 않습니다.
+
+완료한 캐릭터는 다음 선택부터 웹툰을 생략합니다. 캐릭터마다 상태를 따로 관리하고, 다른 사용자의 캐릭터·삭제된 캐릭터에는 완료를 기록할 수 없습니다. 기존 V6의 컬럼을 사용하므로 웹툰을 위한 추가 마이그레이션은 없습니다.
+
+이미지는 `public/assets/mokdo-intro-panels.png`, 대사와 컷 구성은 `src/game/scenes/IntroStory.ts`에 있습니다. 제작 프롬프트는 `docs/design/intro-webtoon.md`에 기록했습니다. `Village`는 도착 여부를 확인하는 임시 화면입니다.
 
 ## 검증
 
@@ -44,7 +65,7 @@
 - `npm run build-nolog`
 - `cd backend` 후 `./gradlew test` (Docker 필요)
 
-백엔드 통합 테스트는 Testcontainers의 별도 PostgreSQL에 실제 Flyway 마이그레이션을 적용합니다. 개발 DB와 Google 자격증명을 사용하지 않습니다. 계정 생성·재로그인·동시 가입·계정 분리·이용 제한·세션 유지·CSRF 로그아웃·OAuth 리디렉션을 확인합니다. Google의 실제 로그인과 토큰 교환은 본인의 브라우저에서 별도로 확인해야 합니다.
+백엔드 통합 테스트는 Testcontainers의 별도 PostgreSQL에 실제 Flyway 마이그레이션을 적용합니다. 개발 DB와 Google 자격증명을 사용하지 않습니다. 계정 생성·재로그인·동시 가입·계정 분리·이용 제한·세션 유지·CSRF 로그아웃·OAuth 리디렉션과 캐릭터 생성·닉네임 검증·동시 생성·소유자 및 이름 확인 삭제·삭제 기록 보존·이름과 슬롯 재사용을 확인합니다. Google의 실제 로그인과 토큰 교환은 본인의 브라우저에서 별도로 확인해야 합니다.
 
 배포 시에는 `GOOGLE_REDIRECT_URI`, `MOKDO_FRONTEND_URL`, 프론트의 `VITE_BACKEND_ORIGIN`을 실제 주소로 변경하고 `SESSION_COOKIE_SECURE=true`로 설정하세요. 운영 환경에서는 같은 사이트에서 프론트와 백엔드에 접근하도록 리버스 프록시를 구성하고 `/api`를 백엔드로 전달해야 합니다. Client Secret은 백엔드에만 설정하세요.
 
