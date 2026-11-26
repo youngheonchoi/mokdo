@@ -3,8 +3,8 @@ services:
     image: postgres:17
     container_name: mokdo-postgres
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: mokdo
+      POSTGRES_USER: mokdo
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "127.0.0.1:5432:5432"
