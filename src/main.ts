@@ -1,4 +1,28 @@
 const app = document.querySelector<HTMLElement>('#app')!;
+const previousLoginKey = 'mokdo.googleLoginCompleted';
+
+function rememberLogin(completed: boolean) {
+    try {
+        if (completed) {
+            localStorage.setItem(previousLoginKey, 'true');
+        } else {
+            localStorage.removeItem(previousLoginKey);
+        }
+    } catch {
+        // Login still works when browser storage is unavailable.
+    }
+}
+
+function consumePreviousLogin(): boolean {
+    try {
+        const completed = localStorage.getItem(previousLoginKey) === 'true';
+        // Re-arm only after a verified session, preventing automatic redirect loops.
+        localStorage.removeItem(previousLoginKey);
+        return completed;
+    } catch {
+        return false;
+    }
+}
 
 function showLogin(message?: string) {
     document.body.classList.remove('authenticated');
@@ -32,6 +56,7 @@ async function initialize() {
             if (typeof session.memberId !== 'string' || !session.memberId) {
                 throw new Error('Invalid session response');
             }
+            rememberLogin(true);
             window.history.replaceState(null, '', '/characters');
             app.replaceChildren();
             document.body.classList.add('authenticated');
@@ -41,6 +66,12 @@ async function initialize() {
             throw new Error('Session check failed');
         }
         const loginFailed = new URLSearchParams(window.location.search).get('login') === 'failed';
+        if (loginFailed) {
+            rememberLogin(false);
+        } else if (consumePreviousLogin()) {
+            window.location.replace('/oauth2/authorization/google?auto=1');
+            return;
+        }
         window.history.replaceState(null, '', '/');
         showLogin(loginFailed ? '로그인을 완료하지 못했어요. 다시 시도해 주세요.' : undefined);
     } catch {

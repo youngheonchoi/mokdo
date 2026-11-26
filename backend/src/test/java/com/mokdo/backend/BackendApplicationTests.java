@@ -68,8 +68,18 @@ class BackendApplicationTests {
                 .andExpect(header().string("Location", containsString("state=")))
                 .andExpect(header().string("Location", containsString("nonce=")))
                 .andExpect(header().string("Location", containsString("scope=openid")))
+                .andExpect(header().string("Location", not(containsString("prompt=none"))))
                 .andExpect(header().string("Location", containsString(
                         "redirect_uri=http://localhost:8080/login/oauth2/code/google")));
+    }
+
+    @Test
+    void automaticLoginRequestsGoogleWithoutAccountOrConsentUi() throws Exception {
+        mvc.perform(get("/oauth2/authorization/google").param("auto", "1"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", containsString("prompt=none")))
+                .andExpect(header().string("Location", containsString("state=")))
+                .andExpect(header().string("Location", containsString("nonce=")));
     }
 
     @Test
