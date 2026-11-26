@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 + "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
         "spring.security.oauth2.client.registration.google.client-id=test-client",
         "spring.security.oauth2.client.registration.google.client-secret=test-secret",
-        "spring.security.oauth2.client.registration.google.redirect-uri=http://localhost:8080/login/oauth2/code/google",
+        "spring.security.oauth2.client.registration.google.redirect-uri=http://localhost:8081/login/oauth2/code/google",
         "app.frontend-url=http://localhost:8080"
 })
 class BackendApplicationTests {
@@ -72,7 +72,7 @@ class BackendApplicationTests {
                 .andExpect(header().string("Location", containsString("scope=openid")))
                 .andExpect(header().string("Location", not(containsString("prompt=none"))))
                 .andExpect(header().string("Location", containsString(
-                        "redirect_uri=http://localhost:8080/login/oauth2/code/google")));
+                        "redirect_uri=http://localhost:8081/login/oauth2/code/google")));
     }
 
     @Test

@@ -42,7 +42,7 @@ GOOGLE_CLIENT_SECRET=your_google_client_secret
 4. JDK 21 이상을 사용해 `backend/`에서 `./gradlew bootRun --args='--spring.profiles.active=local'`을 실행한다. IDE에서는 활성 프로필을 `local`로 지정한다. Flyway가 기존 마이그레이션을 적용한다.
 5. 루트에서 `npm ci`, `npm run dev-nolog`를 실행하고 `http://localhost:8080`에 접속한다.
 
-Vite 개발 서버는 `/api`, `/oauth2`, `/login/oauth2`를 백엔드로 전달한다. Google 콜백은 위 경로 중 하나로 설정한다. 다른 콜백 경로를 쓰면 해당 경로의 프록시도 추가해야 한다. 백엔드는 프로필에 지정한 리디렉션 URI의 경로를 콜백으로 처리한다.
+Vite 개발 서버는 `/api`, `/oauth2`, `/login/oauth2`를 백엔드로 전달한다. 로컬 Google 콜백은 `http://localhost:8081/login/oauth2/code/google`로 백엔드에 직접 돌아온다. Google Cloud Console의 승인된 리디렉션 URI에도 이 주소를 등록한다. 로그인 완료 후에는 `app.frontend-url`에 지정된 프런트엔드 `http://localhost:8080`으로 이동한다. 백엔드는 프로필에 지정한 리디렉션 URI의 경로를 콜백으로 처리한다.
 
 ### 운영 실행
 
