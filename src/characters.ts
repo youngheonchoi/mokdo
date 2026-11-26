@@ -1,9 +1,14 @@
 import { defaultCharacter } from './game/characters/defaultCharacter';
+import { defaultWeapon } from './game/characters/defaultWeapon';
+import { characterTextureUrl } from './game/characters/characterAppearance';
+import { weaponTextureUrl } from './game/characters/weaponAppearance';
+import type { GameCharacter } from './game/types';
 
-type Character = { characterId: string; slotNo: number; nickname: string; level?: number };
+type Character = GameCharacter;
 const app = document.querySelector<HTMLElement>('#app')!;
 const nicknameHelp = '한글, 영문, 숫자 2~12자 · 공백과 특수문자 제외';
 let renderVersion = 0;
+let disposeGame: (() => void) | undefined;
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
     const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...init });
@@ -34,6 +39,8 @@ function navigate(path: string) {
 
 export async function renderCharacters() {
     const version = ++renderVersion;
+    disposeGame?.();
+    disposeGame = undefined;
     document.body.classList.remove('login');
     document.body.classList.add('authenticated');
     const panel = element('section', 'character-panel');
@@ -46,6 +53,19 @@ export async function renderCharacters() {
         const characters = await request<Character[]>('/api/characters');
         if (version !== renderVersion) return;
         panel.replaceChildren();
+        if (window.location.pathname === '/game') {
+            const characterId = new URLSearchParams(window.location.search).get('characterId');
+            const selected = characters.find(character => character.characterId === characterId);
+            if (!selected) {
+                window.history.replaceState(null, '', '/characters');
+                showSelection(panel, characters, '입장할 캐릭터를 선택해 주세요.');
+                return;
+            }
+            const { mountGame } = await import('./game/renderGame');
+            if (version !== renderVersion) return;
+            disposeGame = mountGame(app, selected, () => navigate('/characters'));
+            return;
+        }
         const slot = Number(new URLSearchParams(window.location.search).get('slot'));
         if (window.location.pathname === '/characters/create' && [1, 2, 3].includes(slot)) {
             if (characters.some(character => character.slotNo === slot)) {
@@ -87,11 +107,32 @@ function showSelection(panel: HTMLElement, characters: Character[], notice?: str
                 const rect = defaultCharacter.frames[name];
                 return `${rect.x / (defaultCharacter.sheetWidth - rect.w) * 100}% ${rect.y / (defaultCharacter.sheetHeight - rect.h) * 100}%`;
             };
-            emblem.style.backgroundImage = `url('${defaultCharacter.textureUrl}')`;
+            const textureUrl = characterTextureUrl(character.appearanceCode);
+            emblem.style.backgroundImage = `url('${textureUrl}')`;
+            if (textureUrl !== defaultCharacter.textureUrl) {
+                const texture = new Image();
+                texture.onerror = () => {
+                    emblem.style.backgroundImage = `url('${defaultCharacter.textureUrl}')`;
+                };
+                texture.src = textureUrl;
+            }
             emblem.style.backgroundSize = `${defaultCharacter.sheetWidth / frame.w * 100}% ${defaultCharacter.sheetHeight / frame.h * 100}%`;
             emblem.style.backgroundPosition = position('south-idle');
             walk.frames.forEach((name, index) => emblem.style.setProperty(`--walk-frame-${index}`, position(name)));
             emblem.style.setProperty('--walk-duration', `${walk.frames.length / walk.frameRate}s`);
+            const weaponUrl = weaponTextureUrl(character.weapon?.appearanceCode);
+            if (weaponUrl) {
+                const weapon = element('img', 'character-weapon');
+                weapon.alt = '';
+                weapon.draggable = false;
+                weapon.onerror = () => {
+                    weapon.onerror = null;
+                    if (character.weapon?.appearanceCode === defaultWeapon.key) weapon.src = defaultWeapon.textureUrl;
+                    else weapon.remove();
+                };
+                weapon.src = weaponUrl;
+                emblem.append(weapon);
+            }
         }
         emblem.setAttribute('aria-hidden', 'true');
         card.append(emblem, element('span', 'slot-name', character?.nickname ?? '캐릭터 생성'));
@@ -102,11 +143,8 @@ function showSelection(panel: HTMLElement, characters: Character[], notice?: str
             remove.setAttribute('aria-label', `${character.nickname} 캐릭터 삭제`);
             remove.onclick = () => showDeletion(character, remove);
             slot.append(remove);
-            card.setAttribute('aria-pressed', 'false');
             card.onclick = () => {
-                slots.querySelectorAll('[aria-pressed]').forEach(node => node.setAttribute('aria-pressed', 'false'));
-                card.setAttribute('aria-pressed', 'true');
-                status.textContent = `${character.nickname} 캐릭터를 선택했어요.`;
+                navigate(`/game?characterId=${encodeURIComponent(character.characterId)}`);
             };
         } else {
             card.onclick = () => navigate(`/characters/create?slot=${slotNo}`);

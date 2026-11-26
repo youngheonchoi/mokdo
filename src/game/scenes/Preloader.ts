@@ -1,6 +1,7 @@
 import { Scene } from 'phaser';
 import { defaultCharacter, defaultCharacterAtlas } from '../characters/defaultCharacter';
 import { registerDefaultCharacterAnimations } from '../characters/registerDefaultCharacter';
+import { defaultWeapon } from '../characters/defaultWeapon';
 
 export class Preloader extends Scene
 {
@@ -32,6 +33,7 @@ export class Preloader extends Scene
     preload ()
     {
         this.load.atlas(defaultCharacter.key, defaultCharacter.textureUrl, defaultCharacterAtlas());
+        this.load.image(defaultWeapon.key, defaultWeapon.textureUrl);
         //  Load the assets for the game - Replace with your own assets
         this.load.setPath('assets');
 

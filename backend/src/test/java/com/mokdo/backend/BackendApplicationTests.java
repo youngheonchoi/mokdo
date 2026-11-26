@@ -28,6 +28,7 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -187,8 +188,8 @@ class BackendApplicationTests {
     void characterDeletionUsesAuthenticatedMemberAndExactNickname() throws Exception {
         UUID memberId = UUID.randomUUID();
         UUID characterId = UUID.randomUUID();
-        when(jdbc.update(contains("DELETE FROM gm_character"), eq(characterId), eq(memberId), eq("Hero")))
-                .thenReturn(1);
+        when(jdbc.query(contains("AND nickname = ? FOR UPDATE"), any(RowMapper.class),
+                eq(characterId), eq(memberId), eq("Hero"))).thenReturn(List.of(characterId));
         mvc.perform(delete("/api/characters/" + characterId)
                         .with(oidcLogin().oidcUser(memberUser(memberId))).with(csrf())
                         .contentType("application/json").content("{\"nickname\":\"Hero\"}"))
@@ -205,6 +206,109 @@ class BackendApplicationTests {
                         .contentType("application/json").content("{\"nickname\":\"hero\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    @Test
+    void costumeEndpointsRequireAuthenticationAndCsrf() throws Exception {
+        mvc.perform(get("/api/costumes")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/asset-files/characters/costumes/forest-ranger.png"))
+                .andExpect(status().isUnauthorized());
+        String path = "/api/characters/" + UUID.randomUUID() + "/costume";
+        mvc.perform(put(path).with(csrf()).contentType("application/json").content("{\"costumeId\":null}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put(path).with(oidcLogin().oidcUser(memberUser(UUID.randomUUID())))
+                        .contentType("application/json").content("{\"costumeId\":null}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void ownedCostumeListUsesAuthenticatedMember() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        mvc.perform(get("/api/costumes").with(oidcLogin().oidcUser(memberUser(memberId))))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().json("[]"));
+        verify(jdbc).query(contains("WHERE mc.member_id = ?"), any(RowMapper.class), eq(memberId));
+    }
+
+    @Test
+    void equippingCostumeUsesAuthenticatedMemberAndOwnedCostume() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        UUID costumeId = UUID.randomUUID();
+        when(jdbc.update(contains("AND EXISTS"), eq(costumeId), eq(characterId),
+                eq(memberId), eq(memberId), eq(costumeId))).thenReturn(1);
+        mvc.perform(put("/api/characters/" + characterId + "/costume")
+                        .with(oidcLogin().oidcUser(memberUser(memberId))).with(csrf())
+                        .contentType("application/json").content("{\"costumeId\":\"" + costumeId + "\"}"))
+                .andExpect(status().isNoContent()).andExpect(header().string("Cache-Control", "no-store"));
+        verify(jdbc).update(contains("AND EXISTS"), eq(costumeId), eq(characterId),
+                eq(memberId), eq(memberId), eq(costumeId));
+    }
+
+    @Test
+    void nullCostumeIsRejected() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        mvc.perform(put("/api/characters/" + characterId + "/costume")
+                        .with(oidcLogin().oidcUser(memberUser(memberId))).with(csrf())
+                        .contentType("application/json").content("{\"costumeId\":null}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void unownedCostumeCannotBeEquipped() throws Exception {
+        mvc.perform(put("/api/characters/" + UUID.randomUUID() + "/costume")
+                        .with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))).with(csrf())
+                        .contentType("application/json").content("{\"costumeId\":\"" + UUID.randomUUID() + "\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void weaponEndpointsRequireAuthenticationAndCsrf() throws Exception {
+        String path = "/api/characters/" + UUID.randomUUID();
+        mvc.perform(get(path + "/items")).andExpect(status().isUnauthorized());
+        mvc.perform(put(path + "/weapon").with(csrf()).contentType("application/json")
+                        .content("{\"characterItemId\":null}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put(path + "/weapon").with(oidcLogin().oidcUser(memberUser(UUID.randomUUID())))
+                        .contentType("application/json").content("{\"characterItemId\":null}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void itemListUsesAuthenticatedMemberAndRequestedCharacter() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        mvc.perform(get("/api/characters/" + characterId + "/items")
+                        .with(oidcLogin().oidcUser(memberUser(memberId))))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().json("[]"));
+        verify(jdbc).query(contains("WHERE g.member_id = ? AND g.character_id = ?"),
+                any(RowMapper.class), eq(memberId), eq(characterId));
+    }
+
+    @Test
+    void weaponEquipmentRequiresOwnedCharacterAndOwnedWeapon() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        UUID characterItemId = UUID.randomUUID();
+        when(jdbc.query(contains("FROM gm_character WHERE"), any(RowMapper.class), eq(characterId), eq(memberId)))
+                .thenReturn(List.of(characterId));
+        when(jdbc.query(contains("SELECT ci.character_item_id"), any(RowMapper.class), eq(characterItemId), eq(characterId)))
+                .thenReturn(List.of(characterItemId));
+        mvc.perform(put("/api/characters/" + characterId + "/weapon")
+                        .with(oidcLogin().oidcUser(memberUser(memberId))).with(csrf())
+                        .contentType("application/json").content("{\"characterItemId\":\"" + characterItemId + "\"}"))
+                .andExpect(status().isNoContent()).andExpect(header().string("Cache-Control", "no-store"));
+        verify(jdbc).update(contains("INSERT INTO gm_character_equipment"), any(UUID.class), eq(characterId), eq(characterItemId));
+    }
+
+    @Test
+    void weaponEquipmentRejectsAnotherMembersCharacter() throws Exception {
+        mvc.perform(put("/api/characters/" + UUID.randomUUID() + "/weapon")
+                        .with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))).with(csrf())
+                        .contentType("application/json").content("{\"characterItemId\":null}"))
+                .andExpect(status().isNotFound());
     }
 
     private MemberOidcUser memberUser(UUID memberId) {

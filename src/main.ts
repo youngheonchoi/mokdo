@@ -64,7 +64,7 @@ async function initialize() {
                 throw new Error('Invalid session response');
             }
             rememberLogin(true);
-            if (!['/characters', '/characters/create'].includes(window.location.pathname)) {
+            if (!['/characters', '/characters/create', '/game'].includes(window.location.pathname)) {
                 window.history.replaceState(null, '', '/characters');
             }
             await renderCharacters();

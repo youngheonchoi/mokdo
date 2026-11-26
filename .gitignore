@@ -57,3 +57,9 @@ backend/src/main/resources/application-local.yaml
 
 # Browser test artifacts
 .playwright-mcp/
+
+# Manually managed local asset files
+/local-assets/
+
+# Local SQL reference scripts
+/docs/sql/

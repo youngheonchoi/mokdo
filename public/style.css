@@ -119,7 +119,12 @@ body.authenticated { color: #f5f2df; }
 .character-slot[aria-pressed='true'] { background: rgb(233 200 122 / 17%); border: 2px solid #e9c87a; }
 .slot-number { font-size: 11px; letter-spacing: .12em; color: #b5c4a7; }
 .slot-plus { display: grid; place-items: center; height: 72px; width: 72px; font-size: 40px; font-weight: 300; color: #e9c87a; }
-.character-portrait { display: block; flex-shrink: 0; width: 112px; max-width: 100%; aspect-ratio: 256 / 280; background-repeat: no-repeat; image-rendering: pixelated; animation: character-walk var(--walk-duration, .5s) steps(1, end) infinite; }
+.character-portrait { position: relative; display: block; flex-shrink: 0; width: 112px; max-width: 100%; aspect-ratio: 1; background-repeat: no-repeat; image-rendering: pixelated; animation: character-walk var(--walk-duration, .5s) steps(1, end) infinite; }
+.character-weapon { position: absolute; top: 40%; right: -8px; width: 48px; height: 48px; image-rendering: pixelated; pointer-events: none; transform-origin: 50% 88%; animation: weapon-float 1.8s ease-in-out infinite; }
+@keyframes weapon-float {
+    0%, 100% { transform: translateY(2px); }
+    50% { transform: translateY(-4px); }
+}
 @keyframes character-walk {
     0%, 100% { background-position: var(--walk-frame-0); }
     25% { background-position: var(--walk-frame-1); }
@@ -127,7 +132,7 @@ body.authenticated { color: #f5f2df; }
     75% { background-position: var(--walk-frame-3); }
 }
 @media (prefers-reduced-motion: reduce) {
-    .character-portrait { animation: none; }
+    .character-portrait, .character-weapon { animation: none; }
 }
 .slot-name { max-width: 100%; font-size: 17px; font-weight: 700; overflow-wrap: anywhere; }
 .slot-level { font-size: 12px; color: #ced8c8; }
@@ -156,9 +161,48 @@ body.authenticated { color: #f5f2df; }
     .slot-level { font-size: 11px; }
     .slot-plus { width: 52px; height: 52px; font-size: 30px; }
     .character-portrait { width: 80px; }
+    .character-weapon { right: -4px; width: 32px; height: 32px; }
     .screen-description { font-size: 14px; }
     .secondary-button { padding: 12px; }
 }
 @media (max-height: 600px) {
     #app { height: auto; min-height: 100dvh; }
+}
+
+body.in-game { overflow: hidden; background: #24372c; }
+body.in-game #app { display: block; height: 100dvh; min-height: 0; }
+.game-shell { position: relative; width: 100%; height: 100%; overflow: hidden; isolation: isolate; color: #f3e7c6; }
+.game-viewport { position: absolute; inset: 0; touch-action: none; }
+.game-viewport canvas { display: block; image-rendering: pixelated; }
+.game-shell::after { content: ''; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 140px 35px rgb(12 27 20 / 32%); z-index: 1; }
+.game-header { position: absolute; top: max(22px, env(safe-area-inset-top)); left: 24px; right: 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; pointer-events: none; z-index: 2; }
+.game-identity, .game-equipped, .game-leave { border: 1px solid #8b815b; background: rgb(27 40 30 / 94%); box-shadow: 0 3px 0 rgb(12 22 16 / 45%), inset 0 0 0 3px rgb(184 162 103 / 7%); border-radius: 4px; }
+.game-identity { display: grid; grid-template-columns: auto auto; align-items: center; column-gap: 16px; row-gap: 5px; min-width: 190px; padding: 14px 18px; }
+.game-avatar-mark { grid-column: 1 / -1; color: #bdc29b; font-size: 11px; letter-spacing: .14em; }
+.game-identity strong { max-width: 180px; overflow-wrap: anywhere; font-size: 16px; }
+.game-level { color: #d8bb7b; font-size: 12px; }
+.game-location { position: absolute; left: 50%; transform: translateX(-50%); padding: 11px 36px 16px; min-width: 215px; text-align: center; background: linear-gradient(180deg, rgb(21 37 27 / 89%), rgb(21 37 27 / 45%)); border-top: 1px solid #b9a16b; border-bottom: 1px solid rgb(185 161 107 / 42%); }
+.game-location span { display: block; margin-bottom: 6px; font-size: 11px; letter-spacing: .3em; color: #c4c69a; }
+.game-location strong { font-size: 17px; font-weight: 500; letter-spacing: .08em; }
+.game-leave { min-height: 44px; padding: 10px 17px; color: #eee0b9; font-size: 13px; pointer-events: auto; }
+.game-leave:hover { background: #3d5037; }
+.game-footer { position: absolute; bottom: max(22px, env(safe-area-inset-bottom)); left: 24px; right: 24px; display: flex; align-items: flex-end; gap: 20px; pointer-events: none; z-index: 2; }
+.game-equipped { display: flex; gap: 12px; align-items: center; min-width: 166px; min-height: 64px; padding: 10px 18px; }
+.game-weapon-icon { width: 40px; height: 40px; object-fit: contain; image-rendering: pixelated; }
+.game-equipped span { display: block; margin-bottom: 5px; font-size: 11px; color: #bfc69f; }
+.game-equipped strong { display: block; font-size: 14px; font-weight: 500; }
+.game-help { margin: 0 0 12px; padding: 9px 14px; border-radius: 3px; background: rgb(24 39 28 / 80%); color: #d7d9ba; font-size: 12px; }
+.game-loading { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(360px, calc(100% - 40px)); padding: 20px; background: #1b281e; border: 1px solid #8b815b; text-align: center; line-height: 1.6; z-index: 3; }
+.game-nameplate { position: absolute; z-index: 1; transform: translate(-50%, -100%); padding: 2px 8px; border: 1px solid rgb(229 220 174 / 30%); border-radius: 4px; background: rgb(16 30 22 / 75%); color: #fff5d7; font: 700 14px/20px Arial, 'Noto Sans KR', sans-serif; white-space: nowrap; text-shadow: 0 1px 2px #000; pointer-events: none; }
+@media (max-width: 700px), (pointer: coarse) {
+    .game-header { top: max(14px, env(safe-area-inset-top)); left: 14px; right: 14px; gap: 8px; }
+    .game-identity { min-width: 0; max-width: 60%; padding: 10px 12px; column-gap: 10px; }
+    .game-identity strong { max-width: 150px; font-size: 14px; }
+    .game-location { top: 86px; min-width: 180px; padding: 9px 20px 12px; }
+    .game-location strong { font-size: 15px; }
+    .game-leave { font-size: 12px; padding: 10px 12px; }
+    .game-footer { left: 14px; bottom: max(22px, env(safe-area-inset-bottom)); flex-direction: column; align-items: flex-start; gap: 8px; }
+    .game-equipped { min-width: 125px; min-height: 54px; padding: 8px 12px; gap: 7px; }
+    .game-weapon-icon { width: 32px; height: 32px; }
+    .game-help { margin: 0; padding: 7px 10px; font-size: 11px; }
 }

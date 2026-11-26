@@ -2,6 +2,7 @@ package com.mokdo.backend.character;
 
 import java.util.List;
 import java.util.UUID;
+import java.sql.ResultSet;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,12 +19,15 @@ import static org.mockito.Mockito.*;
 class CharacterServiceTests {
     private JdbcTemplate jdbc;
     private CharacterService characters;
+    private ItemService items;
     private final UUID memberId = UUID.randomUUID();
+    private final UUID defaultCostumeId = UUID.fromString("10000000-0000-4000-8000-000000000001");
 
     @BeforeEach
     void setUp() {
         jdbc = mock(JdbcTemplate.class);
-        characters = new CharacterService(jdbc);
+        items = mock(ItemService.class);
+        characters = new CharacterService(jdbc, items);
     }
 
     @Test
@@ -70,8 +74,8 @@ class CharacterServiceTests {
     @Test
     void rejectsOccupiedSlot() {
         stubMember("ACT");
-        when(jdbc.query(contains("SELECT character_id"), any(RowMapper.class), eq(memberId)))
-                .thenReturn(List.of(new CharacterService.CharacterResponse(UUID.randomUUID(), 2, "기존캐릭터")));
+        when(jdbc.query(contains("SELECT g.character_id"), any(RowMapper.class), eq(memberId)))
+                .thenReturn(List.of(new CharacterService.CharacterResponse(UUID.randomUUID(), 2, "기존캐릭터", defaultCostumeId, "common-character-01", null)));
         var exception = assertThrows(ResponseStatusException.class, () -> characters.create(memberId, 2, "새캐릭터"));
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
         verify(jdbc, never()).update(anyString(), any(Object[].class));
@@ -92,13 +96,18 @@ class CharacterServiceTests {
         var result = characters.create(memberId, 3, "모험가");
         assertEquals(3, result.slotNo());
         assertEquals("모험가", result.nickname());
-        verify(jdbc).update(contains("INSERT INTO gm_character"), eq(result.characterId()), eq(memberId), eq(3), eq("모험가"));
+        assertEquals(defaultCostumeId, result.equippedCostumeId());
+        assertEquals("common-character-01", result.appearanceCode());
+        var order = inOrder(jdbc);
+        order.verify(jdbc).update(contains("INSERT INTO mb_member_costume"), any(UUID.class), eq(memberId), eq(defaultCostumeId));
+        order.verify(jdbc).update(contains("INSERT INTO gm_character"), eq(result.characterId()), eq(memberId), eq(3), eq("모험가"), eq(defaultCostumeId));
+        verify(items).grantDefaultWeapon(result.characterId());
     }
 
     @Test
     void returnsConflictWhenNicknameIsClaimedConcurrently() {
         stubMember("ACT");
-        when(jdbc.update(contains("INSERT INTO gm_character"), any(UUID.class), eq(memberId), eq(1), eq("모험가")))
+        when(jdbc.update(contains("INSERT INTO gm_character"), any(UUID.class), eq(memberId), eq(1), eq("모험가"), eq(defaultCostumeId)))
                 .thenThrow(new DuplicateKeyException("nickname race"));
         var exception = assertThrows(ResponseStatusException.class, () -> characters.create(memberId, 1, "모험가"));
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
@@ -107,10 +116,13 @@ class CharacterServiceTests {
     @Test
     void deletesOnlyOwnedCharacterWithExactNickname() {
         UUID characterId = UUID.randomUUID();
-        when(jdbc.update(contains("DELETE FROM gm_character"), eq(characterId), eq(memberId), eq("Hero")))
-                .thenReturn(1);
+        when(jdbc.query(contains("AND nickname = ? FOR UPDATE"), any(RowMapper.class),
+                eq(characterId), eq(memberId), eq("Hero"))).thenReturn(List.of(characterId));
         characters.delete(memberId, characterId, "Hero");
-        verify(jdbc).update(contains("WHERE character_id = ? AND member_id = ? AND nickname = ?"),
+        var order = inOrder(jdbc);
+        order.verify(jdbc).update(contains("DELETE FROM gm_character_equipment"), eq(characterId));
+        order.verify(jdbc).update(contains("DELETE FROM gm_character_item"), eq(characterId));
+        order.verify(jdbc).update(contains("DELETE FROM gm_character WHERE"),
                 eq(characterId), eq(memberId), eq("Hero"));
     }
 
@@ -121,9 +133,10 @@ class CharacterServiceTests {
             var exception = assertThrows(ResponseStatusException.class,
                     () -> characters.delete(memberId, characterId, nickname));
             assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
-            verify(jdbc).update(contains("AND member_id = ? AND nickname = ?"),
+            verify(jdbc).query(contains("AND member_id = ? AND nickname = ?"), any(RowMapper.class),
                     eq(characterId), eq(memberId), eq(nickname));
         }
+        verify(jdbc, never()).update(anyString(), any(Object[].class));
     }
 
     @Test
@@ -136,7 +149,85 @@ class CharacterServiceTests {
         verifyNoInteractions(jdbc);
     }
 
+    @Test
+    void equipsOnlyOwnedCostumeOnOwnedCharacter() {
+        UUID characterId = UUID.randomUUID();
+        UUID costumeId = UUID.randomUUID();
+        when(jdbc.update(contains("AND EXISTS"), eq(costumeId), eq(characterId),
+                eq(memberId), eq(memberId), eq(costumeId))).thenReturn(1);
+        characters.equipCostume(memberId, characterId, costumeId);
+        verify(jdbc).update(contains("FROM mb_member_costume WHERE member_id = ? AND costume_id = ?"),
+                eq(costumeId), eq(characterId), eq(memberId), eq(memberId), eq(costumeId));
+    }
+
+    @Test
+    void rejectsUnownedCostumeOrAnotherMembersCharacter() {
+        var exception = assertThrows(ResponseStatusException.class,
+                () -> characters.equipCostume(memberId, UUID.randomUUID(), UUID.randomUUID()));
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+    }
+
+    @Test
+    void switchesBackToOwnedDefaultCostume() {
+        UUID characterId = UUID.randomUUID();
+        when(jdbc.update(contains("AND EXISTS"), eq(defaultCostumeId), eq(characterId),
+                eq(memberId), eq(memberId), eq(defaultCostumeId))).thenReturn(1);
+        characters.equipCostume(memberId, characterId, defaultCostumeId);
+        verify(jdbc).update(contains("AND EXISTS"), eq(defaultCostumeId), eq(characterId),
+                eq(memberId), eq(memberId), eq(defaultCostumeId));
+    }
+
+    @Test
+    void refusesNullCostumeWithoutDatabaseAccess() {
+        var exception = assertThrows(ResponseStatusException.class,
+                () -> characters.equipCostume(memberId, UUID.randomUUID(), null));
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verifyNoInteractions(jdbc);
+    }
+
+    @Test
+    void listsCostumesForAuthenticatedOwner() {
+        characters.ownedCostumes(memberId);
+        verify(jdbc).query(contains("WHERE mc.member_id = ?"), any(RowMapper.class), eq(memberId));
+    }
+
+    @Test
+    void characterListMapsEquippedCostumeAndResolvedAppearance() throws Exception {
+        UUID characterId = UUID.randomUUID();
+        UUID costumeId = UUID.randomUUID();
+        ResultSet rs = mock(ResultSet.class);
+        when(rs.getObject("character_id", UUID.class)).thenReturn(characterId);
+        when(rs.getInt("slot_no")).thenReturn(1);
+        when(rs.getString("nickname")).thenReturn("모험가");
+        when(rs.getObject("equipped_costume_id", UUID.class)).thenReturn(costumeId);
+        when(rs.getString("appearance_code")).thenReturn("forest-ranger");
+        when(jdbc.query(contains("JOIN gm_costume"), any(RowMapper.class), eq(memberId)))
+                .thenAnswer(invocation -> {
+                    RowMapper<CharacterService.CharacterResponse> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapRow(rs, 0));
+                });
+        var character = characters.list(memberId).getFirst();
+        assertEquals(costumeId, character.equippedCostumeId());
+        assertEquals("forest-ranger", character.appearanceCode());
+        assertEquals(characterId, character.characterId());
+        assertNull(character.weapon());
+        UUID characterItemId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        when(rs.getObject("weapon_character_item_id", UUID.class)).thenReturn(characterItemId);
+        when(rs.getObject("weapon_item_id", UUID.class)).thenReturn(itemId);
+        when(rs.getString("weapon_item_code")).thenReturn("wooden-club");
+        when(rs.getString("weapon_name")).thenReturn("몽둥이");
+        when(rs.getString("weapon_appearance_code")).thenReturn("wooden-club");
+        var weapon = characters.list(memberId).getFirst().weapon();
+        assertEquals(characterItemId, weapon.characterItemId());
+        assertEquals(itemId, weapon.itemId());
+        assertEquals("몽둥이", weapon.name());
+        assertEquals("wooden-club", weapon.appearanceCode());
+    }
+
     private void stubMember(String status) {
         when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(memberId))).thenReturn(List.of(status));
+        when(jdbc.queryForObject(contains("SELECT costume_id FROM gm_costume"), eq(UUID.class), eq("common-character-01")))
+                .thenReturn(defaultCostumeId);
     }
 }
