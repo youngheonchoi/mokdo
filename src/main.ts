@@ -1,5 +1,11 @@
+import { renderCharacters } from './characters';
+
 const app = document.querySelector<HTMLElement>('#app')!;
 const previousLoginKey = 'mokdo.googleLoginCompleted';
+
+window.addEventListener('keydown', event => {
+    if (event.key === 'Tab') event.preventDefault();
+}, { capture: true });
 
 function rememberLogin(completed: boolean) {
     try {
@@ -26,6 +32,7 @@ function consumePreviousLogin(): boolean {
 
 function showLogin(message?: string) {
     document.body.classList.remove('authenticated');
+    document.body.classList.add('login');
     app.replaceChildren();
     const panel = document.createElement('div');
     panel.className = 'login-panel';
@@ -57,9 +64,10 @@ async function initialize() {
                 throw new Error('Invalid session response');
             }
             rememberLogin(true);
-            window.history.replaceState(null, '', '/characters');
-            app.replaceChildren();
-            document.body.classList.add('authenticated');
+            if (!['/characters', '/characters/create'].includes(window.location.pathname)) {
+                window.history.replaceState(null, '', '/characters');
+            }
+            await renderCharacters();
             return;
         }
         if (response.status !== 401) {

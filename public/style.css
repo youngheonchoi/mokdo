@@ -16,12 +16,14 @@ html, body {
     align-items: center;
 }
 
+body.login,
 body.authenticated {
-    background: #fff;
+    background: #8dbb77 url('/assets/login-forest.png') center / cover no-repeat fixed;
 }
 
 .login-panel {
     position: relative;
+    margin: 24px;
 }
 
 .google-login {
@@ -38,6 +40,7 @@ body.authenticated {
     font-size: 16px;
     font-weight: 500;
     text-decoration: none;
+    box-shadow: 0 4px 20px rgb(22 49 31 / 20%);
 }
 
 .google-login:hover {
@@ -55,8 +58,107 @@ body.authenticated {
     left: 50%;
     width: min(320px, 90vw);
     transform: translateX(-50%);
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgb(17 40 29 / 85%);
     color: #fff;
     font-size: 14px;
     line-height: 1.6;
     text-align: center;
+}
+
+* { box-sizing: border-box; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .55; }
+button:focus-visible, input:focus-visible { outline: 3px solid #e9c87a; outline-offset: 4px; }
+body.authenticated { color: #f5f2df; }
+.character-panel {
+    width: min(800px, calc(100% - 32px));
+    margin: 32px 0;
+    padding: 36px;
+    text-align: center;
+    border: 1px solid rgb(221 232 189 / 45%);
+    border-radius: 20px;
+    background: rgb(15 38 29 / 91%);
+    box-shadow: 0 20px 70px rgb(9 27 21 / 32%);
+}
+.eyebrow { margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: .22em; color: #d6c18a; }
+.character-panel h1 { margin: 0; font-size: 30px; letter-spacing: -.04em; }
+.screen-description { margin: 12px 0 28px; color: #ced8c8; font-size: 15px; line-height: 1.6; }
+.character-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.character-slot-wrapper { position: relative; min-width: 0; }
+.character-slot-wrapper > .character-slot { width: 100%; height: 100%; }
+.character-delete { position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: transparent; color: #f5f2df; font-size: 26px; }
+.character-delete:hover { background: rgb(255 195 181 / 15%); color: #ffc3b5; }
+.character-delete-dialog { box-sizing: border-box; width: min(440px, calc(100% - 32px)); padding: 28px; border: 1px solid #85957a; border-radius: 16px; background: #18382a; color: #f5f2df; }
+.character-delete-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+.character-delete-dialog h2 { margin: 0; font-size: 24px; }
+.character-delete-dialog p { line-height: 1.6; overflow-wrap: anywhere; }
+.delete-actions { display: flex; justify-content: flex-end; gap: 12px; }
+.character-form .delete-actions > button { box-sizing: border-box; width: auto; height: 48px; margin: 0; padding: 12px 18px; font-size: 14px; line-height: 22px; }
+.danger-button { background: #ffc3b5; border-color: #ffc3b5; color: #56261e; }
+.character-slot {
+    min-width: 0;
+    min-height: 250px;
+    padding: 20px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    border: 1px solid #85957a;
+    border-radius: 12px;
+    background: rgb(207 223 178 / 8%);
+    color: #f5f2df;
+    transition: background .15s, border-color .15s;
+}
+.character-slot.empty { border-style: dashed; }
+.character-slot:hover { background: rgb(207 223 178 / 17%); border-color: #e9c87a; }
+.character-slot[aria-pressed='true'] { background: rgb(233 200 122 / 17%); border: 2px solid #e9c87a; }
+.slot-number { font-size: 11px; letter-spacing: .12em; color: #b5c4a7; }
+.slot-plus { display: grid; place-items: center; height: 72px; width: 72px; font-size: 40px; font-weight: 300; color: #e9c87a; }
+.character-portrait { display: block; flex-shrink: 0; width: 112px; max-width: 100%; aspect-ratio: 256 / 280; background-repeat: no-repeat; image-rendering: pixelated; animation: character-walk var(--walk-duration, .5s) steps(1, end) infinite; }
+@keyframes character-walk {
+    0%, 100% { background-position: var(--walk-frame-0); }
+    25% { background-position: var(--walk-frame-1); }
+    50% { background-position: var(--walk-frame-2); }
+    75% { background-position: var(--walk-frame-3); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .character-portrait { animation: none; }
+}
+.slot-name { max-width: 100%; font-size: 17px; font-weight: 700; overflow-wrap: anywhere; }
+.slot-level { font-size: 12px; color: #ced8c8; }
+.selection-status { min-height: 22px; margin: 20px 0 0; color: #e9d394; font-size: 14px; line-height: 1.6; }
+.creation-panel { max-width: 500px; }
+.back-button { display: block; min-height: 44px; margin: -12px 0 16px; padding: 8px 0; border: 0; background: transparent; color: #ced8c8; font-size: 14px; text-decoration: underline; text-underline-offset: 4px; }
+.character-form { text-align: left; }
+.nickname-label { display: block; margin-bottom: 10px; font-size: 14px; font-weight: 700; }
+.nickname-row { display: flex; gap: 10px; }
+.nickname-input { width: 100%; min-width: 0; min-height: 48px; padding: 12px; border: 1px solid #879b7f; border-radius: 8px; background: #f5f5e9; color: #18382a; font-size: 16px; }
+.nickname-input::placeholder { color: #65725f; }
+.nickname-input[aria-invalid='true'] { border-color: #ffb2a0; }
+.secondary-button, .primary-button { min-height: 48px; padding: 12px 18px; border: 1px solid #c2c9a9; border-radius: 8px; font-weight: 700; }
+.secondary-button { flex-shrink: 0; background: #324c39; color: #f5f2df; font-size: 14px; }
+.primary-button { background: #ead298; color: #263b2a; border-color: #ead298; }
+.character-form .primary-button { width: 100%; margin-top: 12px; }
+.field-help { margin: 12px 0 0; color: #ced8c8; font-size: 12px; line-height: 1.6; }
+.form-message { min-height: 44px; margin: 10px 0 0; color: #e9d394; font-size: 14px; line-height: 1.6; }
+.form-message.error { color: #ffc3b5; }
+@media (max-width: 560px) {
+    .character-panel { padding: 24px 14px; }
+    .character-panel h1 { font-size: 26px; }
+    .character-slots { gap: 8px; }
+    .character-slot { min-height: 210px; padding: 16px 6px; }
+    .slot-name { font-size: 14px; }
+    .slot-level { font-size: 11px; }
+    .slot-plus { width: 52px; height: 52px; font-size: 30px; }
+    .character-portrait { width: 80px; }
+    .screen-description { font-size: 14px; }
+    .secondary-button { padding: 12px; }
+}
+@media (max-height: 600px) {
+    #app { height: auto; min-height: 100dvh; }
 }

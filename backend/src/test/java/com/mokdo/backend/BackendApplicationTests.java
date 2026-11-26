@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
@@ -22,9 +23,17 @@ import org.springframework.web.context.WebApplicationContext;
 
 import static org.hamcrest.Matchers.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.oidcLogin;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 
 @ActiveProfiles("local")
 @SpringBootTest(properties = {
@@ -118,5 +127,90 @@ class BackendApplicationTests {
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(content().json("{\"memberId\":\"" + memberId + "\"}",
                         org.springframework.test.json.JsonCompareMode.STRICT));
+    }
+
+    @Test
+    void characterReadsRequireAuthentication() throws Exception {
+        mvc.perform(get("/api/characters")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/characters/nickname-check").param("nickname", "모험가"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/csrf")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void characterCreationRequiresCsrf() throws Exception {
+        mvc.perform(post("/api/characters").with(oidcLogin().oidcUser(memberUser(UUID.randomUUID())))
+                        .contentType("application/json").content("{\"slotNo\":1,\"nickname\":\"모험가\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void csrfEndpointReturnsTokenForAuthenticatedSession() throws Exception {
+        mvc.perform(get("/api/auth/csrf").with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.headerName").value("X-CSRF-TOKEN"))
+                .andExpect(jsonPath("$.token").isNotEmpty());
+    }
+
+    @Test
+    void characterListUsesAuthenticatedMember() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        mvc.perform(get("/api/characters").with(oidcLogin().oidcUser(memberUser(memberId))))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().json("[]"));
+        verify(jdbc).query(contains("WHERE member_id = ?"), any(RowMapper.class), eq(memberId));
+    }
+
+    @Test
+    void characterCreationValidatesNicknameOnServer() throws Exception {
+        mvc.perform(post("/api/characters").with(oidcLogin().oidcUser(memberUser(UUID.randomUUID())))
+                        .with(csrf()).contentType("application/json")
+                        .content("{\"slotNo\":1,\"nickname\":\"a!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    @Test
+    void characterDeletionRequiresAuthenticationAndCsrf() throws Exception {
+        String path = "/api/characters/" + UUID.randomUUID();
+        mvc.perform(delete(path).with(csrf()).contentType("application/json")
+                        .content("{\"nickname\":\"Hero\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(delete(path).with(oidcLogin().oidcUser(memberUser(UUID.randomUUID())))
+                        .contentType("application/json").content("{\"nickname\":\"Hero\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void characterDeletionUsesAuthenticatedMemberAndExactNickname() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        when(jdbc.update(contains("DELETE FROM gm_character"), eq(characterId), eq(memberId), eq("Hero")))
+                .thenReturn(1);
+        mvc.perform(delete("/api/characters/" + characterId)
+                        .with(oidcLogin().oidcUser(memberUser(memberId))).with(csrf())
+                        .contentType("application/json").content("{\"nickname\":\"Hero\"}"))
+                .andExpect(status().isNoContent())
+                .andExpect(header().string("Cache-Control", "no-store"));
+        verify(jdbc).update(contains("AND member_id = ? AND nickname = ?"),
+                eq(characterId), eq(memberId), eq("Hero"));
+    }
+
+    @Test
+    void characterDeletionReturnsConflictForUnmatchedCharacter() throws Exception {
+        mvc.perform(delete("/api/characters/" + UUID.randomUUID())
+                        .with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))).with(csrf())
+                        .contentType("application/json").content("{\"nickname\":\"hero\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    private MemberOidcUser memberUser(UUID memberId) {
+        OidcIdToken token = OidcIdToken.withTokenValue("test-id-token")
+                .subject("google-subject").issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(300)).build();
+        return new MemberOidcUser(new DefaultOidcUser(
+                List.of(new SimpleGrantedAuthority("ROLE_USER")), token), memberId);
     }
 }
