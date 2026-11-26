@@ -120,7 +120,7 @@ body.authenticated { color: #f5f2df; }
 .slot-number { font-size: 11px; letter-spacing: .12em; color: #b5c4a7; }
 .slot-plus { display: grid; place-items: center; height: 72px; width: 72px; font-size: 40px; font-weight: 300; color: #e9c87a; }
 .character-portrait { position: relative; display: block; flex-shrink: 0; width: 112px; max-width: 100%; aspect-ratio: 1; background-repeat: no-repeat; image-rendering: pixelated; animation: character-walk var(--walk-duration, .5s) steps(1, end) infinite; }
-.character-weapon { position: absolute; top: 40%; right: -8px; width: 48px; height: 48px; image-rendering: pixelated; pointer-events: none; transform-origin: 50% 88%; animation: weapon-float 1.8s ease-in-out infinite; }
+.character-weapon { position: absolute; top: 40%; right: -8px; width: 64px; height: 64px; image-rendering: pixelated; pointer-events: none; transform-origin: 50% 88%; animation: weapon-float 1.8s ease-in-out infinite; }
 @keyframes weapon-float {
     0%, 100% { transform: translateY(2px); }
     50% { transform: translateY(-4px); }
@@ -161,7 +161,7 @@ body.authenticated { color: #f5f2df; }
     .slot-level { font-size: 11px; }
     .slot-plus { width: 52px; height: 52px; font-size: 30px; }
     .character-portrait { width: 80px; }
-    .character-weapon { right: -4px; width: 32px; height: 32px; }
+    .character-weapon { right: -8px; width: 48px; height: 48px; }
     .screen-description { font-size: 14px; }
     .secondary-button { padding: 12px; }
 }

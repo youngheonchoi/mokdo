@@ -65,7 +65,8 @@ export class Forest extends Scene {
         const weaponKey = this.textures.exists('player-weapon') ? 'player-weapon'
             : this.character.weapon?.appearanceCode === defaultWeapon.key && this.textures.exists(defaultWeapon.key) ? defaultWeapon.key : null;
         if (weaponKey) {
-            this.weapon = this.add.image(25, -12, weaponKey).setDisplaySize(32, 32).setOrigin(.5, .85);
+            this.weapon = this.add.image(32, -12, weaponKey)
+                .setDisplaySize(defaultWeapon.displaySize, defaultWeapon.displaySize).setOrigin(.5, .85);
             this.player.add(this.weapon);
         }
         this.cameras.main.startFollow(this.player, true, 1, 1);
@@ -168,7 +169,7 @@ export class Forest extends Scene {
                 if (this.attackFacing.startsWith('north')) this.player.sendToBack(this.weapon);
                 else this.player.bringToTop(this.weapon);
             } else {
-                this.weapon.setPosition(25, -12 + (this.reducedMotion ? 0 : Math.sin(time / 900) * 3)).setRotation(0);
+                this.weapon.setPosition(32, -12 + (this.reducedMotion ? 0 : Math.sin(time / 900) * 3)).setRotation(0);
                 this.player.bringToTop(this.weapon);
             }
         }
