@@ -29,6 +29,8 @@ export class Forest extends Scene {
     private attackStartedAt = -Infinity;
     private attackReadyAt = 0;
     private attackFacing: Direction = 'south';
+    private uiBlocked = false;
+    private weaponRevision = 0;
 
     constructor(character: GameCharacter, callbacks: SceneCallbacks) {
         super('Forest');
@@ -40,12 +42,12 @@ export class Forest extends Scene {
         this.load.atlas('forest-tiles', forestMap.tileUrl, forestMap.atlas);
         this.load.image('forest-tree', forestMap.treeUrl);
         this.load.atlas(defaultCharacter.key, defaultCharacter.textureUrl, defaultCharacterAtlas());
+        this.load.image(defaultWeapon.key, defaultWeapon.textureUrl);
         const costume = characterTextureUrl(this.character.appearanceCode);
         if (costume !== defaultCharacter.textureUrl) this.load.atlas('player-costume', costume, defaultCharacterAtlas());
         const weapon = weaponTextureUrl(this.character.weapon?.appearanceCode, this.character.weapon?.itemId);
         if (weapon) {
             this.load.image('player-weapon', weapon);
-            if (this.character.weapon?.appearanceCode === defaultWeapon.key) this.load.image(defaultWeapon.key, defaultWeapon.textureUrl);
         }
     }
 
@@ -102,10 +104,45 @@ export class Forest extends Scene {
         this.input.keyboard?.resetKeys();
     }
 
+    setUiBlocked(blocked: boolean) {
+        this.uiBlocked = blocked;
+        this.resetInput();
+        if (this.input.keyboard) this.input.keyboard.enabled = !blocked;
+    }
+
+    setCharacter(character: GameCharacter) {
+        const previous = this.character.weapon;
+        this.character = character;
+        if (previous?.characterItemId === character.weapon?.characterItemId) return;
+        const revision = ++this.weaponRevision;
+        this.weapon?.destroy();
+        this.weapon = undefined;
+        this.attackStartedAt = -Infinity;
+        this.attackRequested = false;
+        const url = weaponTextureUrl(character.weapon?.appearanceCode, character.weapon?.itemId);
+        if (!url) return;
+        const key = `equipped-weapon-${character.weapon!.itemId}`;
+        const attach = () => {
+            if (!this.sys.isActive() || revision !== this.weaponRevision) return;
+            const texture = this.textures.exists(key) ? key
+                : character.weapon?.appearanceCode === defaultWeapon.key && this.textures.exists(defaultWeapon.key) ? defaultWeapon.key : null;
+            if (!texture) return;
+            this.weapon = this.add.image(32, -12, texture)
+                .setDisplaySize(defaultWeapon.displaySize, defaultWeapon.displaySize).setOrigin(.5, .85);
+            this.player.add(this.weapon);
+        };
+        if (this.textures.exists(key)) attach();
+        else {
+            this.load.image(key, url);
+            this.load.once('complete', attach);
+            this.load.start();
+        }
+    }
+
     update(time: number, delta: number) {
         if (!this.player || !this.cursors) return;
-        const dx = Number(this.cursors.right.isDown) - Number(this.cursors.left.isDown);
-        const dy = Number(this.cursors.down.isDown) - Number(this.cursors.up.isDown);
+        const dx = this.uiBlocked ? 0 : Number(this.cursors.right.isDown) - Number(this.cursors.left.isDown);
+        const dy = this.uiBlocked ? 0 : Number(this.cursors.down.isDown) - Number(this.cursors.up.isDown);
         const distance = Math.hypot(dx, dy);
         // Preserve real-time speed during slow frames; split travel so collisions cannot be skipped.
         // Cap only long stalls (such as returning from a suspended browser).
