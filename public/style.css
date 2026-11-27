@@ -119,17 +119,8 @@ body.authenticated { color: #f5f2df; }
 .character-slot[aria-pressed='true'] { background: rgb(233 200 122 / 17%); border: 2px solid #e9c87a; }
 .slot-number { font-size: 11px; letter-spacing: .12em; color: #b5c4a7; }
 .slot-plus { display: grid; place-items: center; height: 72px; width: 72px; font-size: 40px; font-weight: 300; color: #e9c87a; }
-.character-portrait { position: relative; display: block; flex-shrink: 0; width: 112px; max-width: 100%; aspect-ratio: 1; background-repeat: no-repeat; image-rendering: pixelated; animation: character-walk var(--walk-duration, .5s) steps(1, end) infinite; }
+.character-portrait { position: relative; display: block; flex-shrink: 0; width: 112px; max-width: 100%; aspect-ratio: 1; background-repeat: no-repeat; image-rendering: pixelated; }
 .character-weapon { position: absolute; height: auto; image-rendering: pixelated; pointer-events: none; visibility: hidden; }
-@keyframes character-walk {
-    0%, 100% { background-position: var(--walk-frame-0); }
-    25% { background-position: var(--walk-frame-1); }
-    50% { background-position: var(--walk-frame-2); }
-    75% { background-position: var(--walk-frame-3); }
-}
-@media (prefers-reduced-motion: reduce) {
-    .character-portrait, .character-weapon { animation: none; }
-}
 .slot-name { max-width: 100%; font-size: 17px; font-weight: 700; overflow-wrap: anywhere; }
 .slot-level { font-size: 12px; color: #ced8c8; }
 .selection-status { min-height: 22px; margin: 20px 0 0; color: #e9d394; font-size: 14px; line-height: 1.6; }

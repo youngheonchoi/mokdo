@@ -193,4 +193,11 @@ class BattlePostgresTests {
         assertNull(jdbc.queryForObject("SELECT to_regclass('gm_character_battle_event')",String.class));
         assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_name='gm_character' AND column_name IN ('current_hp','currency')",Integer.class));
     }
+    @Test void spriteMetadataMigrationKeepsLegacyDefinitionsAndAcceptsMetadata() {
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_name IN ('gm_costume','gm_monster') AND column_name='sprite_json' AND data_type='text'", Integer.class));
+        assertNull(jdbc.queryForObject("SELECT sprite_json FROM gm_monster WHERE monster_code='tmffkdla'", String.class));
+        jdbc.update("UPDATE gm_monster SET sprite_json=? WHERE monster_code='tmffkdla'", "{\"version\":1}");
+        assertEquals("{\"version\":1}", jdbc.queryForObject("SELECT sprite_json FROM gm_monster WHERE monster_code='tmffkdla'", String.class));
+    }
+
 }

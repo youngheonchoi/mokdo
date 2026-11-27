@@ -24,8 +24,7 @@ export function mountBattleOverlay(shell: HTMLElement) {
     const enemyName = el('strong', '');
     const enemyHp = el('progress', '');
     enemyHp.setAttribute('aria-label', '몬스터 체력');
-    const enemyStatus = el('span', '');
-    enemy.append(enemyName, enemyHp, enemyStatus);
+    enemy.append(enemyName, enemyHp);
     const layer = el('div', 'battle-floats');
     layer.setAttribute('aria-hidden', 'true');
     shell.append(hud, enemy, layer);
@@ -44,7 +43,7 @@ export function mountBattleOverlay(shell: HTMLElement) {
         exp.value = c.exp ?? 0;
         expLabel.textContent = `경험치 ${(c.exp ?? 0).toLocaleString()}${c.requiredExp == null ? ' · 최고 설정 레벨' : ` / ${c.requiredExp.toLocaleString()}`}`;
         currency.textContent = `재화 ${(c.currency ?? 0).toLocaleString()}`;
-        enemy.hidden = false;
+        enemy.hidden = next.monster.hp <= 0;
         enemyName.textContent = `${next.monster.definition.name} · Lv.${next.monster.definition.level}`;
         enemyHp.max = next.monster.definition.maxHp;
         enemyHp.value = next.monster.hp;
@@ -72,9 +71,6 @@ export function mountBattleOverlay(shell: HTMLElement) {
         enemy.style.top = `${(monsterY - scrollY - 105) * zoom}px`;
         if (state) {
             const seconds = (at: number) => Math.max(0, Math.ceil((at - Date.now() - serverOffset) / 1000));
-            enemyStatus.textContent = state.monster.hp > 0
-                ? `${state.monster.hp.toLocaleString()} / ${state.monster.definition.maxHp.toLocaleString()}`
-                : state.monster.respawnAt == null ? '처치 확인 중…' : `처치 · ${seconds(state.monster.respawnAt)}초 후 리스폰`;
             hud.dataset.dead = String((state.character.currentHp ?? 1) === 0);
             if ((state.character.currentHp ?? 1) === 0) message.textContent = `${seconds(state.player.reviveAt ?? 0)}초 후 숲길 초입에서 부활해요.`;
         }

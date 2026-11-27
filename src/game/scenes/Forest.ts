@@ -1,3 +1,5 @@
+import { frameFootprint, type FrameFootprint } from '../assets/frameFootprint';
+import { legacyCharacterSheet, spriteSheet, registerSheet, playAction, type SpriteSheet } from '../assets/spriteSheet';
 import { moveMonster, monsterBehavior } from '../monsterMotion';
 import { GameObjects, Input, Scene } from 'phaser';
 import { defaultCharacter, defaultCharacterAtlas } from '../characters/defaultCharacter';
@@ -37,8 +39,15 @@ export class Forest extends Scene {
     private battleAvailable = false;
     private outgoingJump = false;
     private enemy?: GameObjects.Container;
-    private enemyImage?: GameObjects.Image;
+    private enemyImage?: GameObjects.Sprite;
+    private characterSheet: SpriteSheet = legacyCharacterSheet;
+    private enemyAnimated = false;
+    private enemyFacing: Direction = 'west';
+    private enemyAttackUntil = 0;
+    private enemyAttackFacing: Direction = 'west';
+    private enemyHurtUntil = 0;
     private enemyShadow?: GameObjects.Ellipse;
+    private enemyFootprints = new Map<string, FrameFootprint>();
     private enemyHp = 0;
     private enemyTexture?: string;
     private enemyLoaded = false;
@@ -71,7 +80,10 @@ export class Forest extends Scene {
         this.load.atlas(defaultCharacter.key, defaultCharacter.textureUrl, defaultCharacterAtlas());
         this.load.image(defaultWeapon.key, defaultWeapon.textureUrl);
         const costume = characterTextureUrl(this.character.appearanceCode);
-        if (costume !== defaultCharacter.textureUrl) this.load.atlas('player-costume', costume, defaultCharacterAtlas());
+        if (costume !== defaultCharacter.textureUrl) {
+            this.load.image('player-costume-source', costume);
+            this.load.json('player-costume-metadata', `/api/costumes/${this.character.appearanceCode}/sprite`);
+        }
         const weapon = weaponTextureUrl(this.character.weapon?.appearanceCode, this.character.weapon?.itemId);
         if (weapon) {
             this.load.image('player-weapon', weapon);
@@ -85,11 +97,15 @@ export class Forest extends Scene {
         }
         this.cameras.main.setBackgroundColor(0x24372c);
         this.obstacles = buildForest(this);
-        this.textureKey = this.textures.exists('player-costume') ? 'player-costume' : defaultCharacter.key;
-        registerDefaultCharacterAnimations(this, this.textureKey);
+        if (this.textures.exists('player-costume-source')) {
+            this.characterSheet = spriteSheet(this.cache.json.get('player-costume-metadata')) ?? legacyCharacterSheet;
+            try { registerSheet(this, 'player-costume', 'player-costume-source', this.characterSheet); }
+            catch { this.callbacks.failed(); return; }
+            this.textureKey = 'player-costume';
+        } else registerDefaultCharacterAnimations(this);
         const { x, y } = forestMap.spawn;
         this.shadow = this.add.ellipse(x, y, 28, 11, 0x13241c, .3).setDepth(y - 1);
-        this.sprite = this.add.sprite(0, 0, this.textureKey, 'east-idle').setOrigin(.5, .875).setScale(defaultCharacter.displayScale);
+        this.sprite = this.add.sprite(0, 0, this.textureKey, 'east-idle').setOrigin(.5, .875).setScale(96 / this.characterSheet.cellHeight);
         this.player = this.add.container(x, y, [this.sprite]).setDepth(y);
         const weaponKey = this.textures.exists('player-weapon') ? 'player-weapon'
             : this.character.weapon?.appearanceCode === defaultWeapon.key && this.textures.exists(defaultWeapon.key) ? defaultWeapon.key : null;
@@ -215,13 +231,21 @@ export class Forest extends Scene {
             this.enemy.add([placeholder, missing]);
             const key = `monster-${state.monster.definition.monsterId}`;
             this.enemyTexture = key;
-            this.load.image(key, `/api/monsters/${state.monster.definition.monsterId}/image`);
+            this.load.image(`${key}-source`, `/api/monsters/${state.monster.definition.monsterId}/image`);
+            this.load.json(`${key}-metadata`, `/api/monsters/${state.monster.definition.monsterId}/sprite`);
             this.load.once('complete', () => {
-                if (!this.sys.isActive() || this.enemyTexture !== key || !this.textures.exists(key)) return;
+                if (!this.sys.isActive() || this.enemyTexture !== key || !this.textures.exists(`${key}-source`)) return;
+                const sheet = spriteSheet(this.cache.json.get(`${key}-metadata`));
+                if (sheet) {
+                    try { registerSheet(this, key, `${key}-source`, sheet); }
+                    catch { return; }
+                    this.enemyAnimated = true;
+                }
                 placeholder.destroy(); missing.destroy();
-                this.enemyImage = this.add.image(0, 0, key).setOrigin(.5, 1);
+                this.enemyImage = this.add.sprite(0, 0, sheet ? key : `${key}-source`, sheet ? 'west-idle' : undefined).setOrigin(.5, 1);
                 this.enemyImage.setScale(Math.min(80 / this.enemyImage.width, 80 / this.enemyImage.height));
                 this.enemy!.add(this.enemyImage);
+                this.positionEnemyShadow();
             });
             this.load.start();
         }
@@ -244,10 +268,13 @@ export class Forest extends Scene {
         this.publishBattle(effects);
         for (const event of effects) {
             if (event.kind === 'MONSTER_HIT' && this.enemyImage) {
+                this.enemyHurtUntil = this.time.now + 140;
                 this.enemyImage.setTint(0xffb2a2);
                 this.time.delayedCall(140, () => this.enemyImage?.clearTint());
             }
             if (event.kind === 'PLAYER_HIT') {
+                this.enemyAttackFacing = state.player.x > state.monster.x ? 'east' : 'west';
+                this.enemyAttackUntil = this.time.now + this.actionDuration(this.enemyTexture, 'attack', this.enemyAttackFacing);
                 this.hurtUntil = this.time.now + 200;
                 this.sprite.setTint(0xff9d8b);
                 this.time.delayedCall(200, () => this.sprite.clearTint());
@@ -258,14 +285,42 @@ export class Forest extends Scene {
         }
     }
 
+    private positionEnemyShadow() {
+        if (!this.enemy || !this.enemyShadow) return;
+        let x = this.enemy.x, y = this.enemy.y;
+        const image = this.enemyImage;
+        if (image) {
+            const frame = image.frame;
+            const key = `${image.texture.key}:${frame.name}`;
+            let feet = this.enemyFootprints.get(key);
+            if (!feet) {
+                feet = frameFootprint(image.texture.getSourceImage() as CanvasImageSource, frame);
+                this.enemyFootprints.set(key, feet);
+            }
+            x += image.x + (feet.centerX - image.originX * frame.cutWidth) * image.scaleX;
+            y += image.y + (feet.bottom - image.originY * frame.cutHeight) * image.scaleY;
+        }
+        // Overlap the lowest visible pixels slightly so the body rests on the shadow.
+        this.enemyShadow.setPosition(x, y - 2).setDepth(this.enemy.y - 1);
+    }
+
+    private actionDuration(key: string | undefined, action: string, dir: string) {
+        const anim = key && this.anims.get(`${key}-${action}-${dir}`);
+        return anim ? anim.duration : 0;
+    }
+
     private publishBattle(effects: BattleEffect[]) {
         if (!this.battleState) return;
         const damage = [...this.pendingHits.values()].reduce((sum, hit) =>
             sum + (hit.generation === this.battleState!.monster.generation ? hit.damage : 0), 0);
         const hp = Math.max(0, this.battleState.monster.hp - damage);
         if (this.enemy) {
-            if (this.enemyHp > 0 && hp === 0) this.tweens.add({ targets: this.enemy, alpha: 0, duration: 250 });
+            if (this.enemyHp > 0 && hp === 0) {
+                if (this.enemyAnimated && this.enemyImage) playAction(this.enemyImage, this, this.enemyTexture!, 'death', this.enemyFacing);
+                this.tweens.add({ targets: this.enemy, alpha: 0, delay: this.enemyAnimated ? this.actionDuration(this.enemyTexture, 'death', this.enemyFacing) : 0, duration: 250 });
+            }
             else if (this.enemyHp === 0 && hp > 0) {
+                this.enemyAttackUntil = this.enemyHurtUntil = 0;
                 this.tweens.killTweensOf(this.enemy);
                 this.enemy.setAlpha(.25);
                 this.tweens.add({ targets: this.enemy, alpha: 1, duration: 250 });
@@ -287,6 +342,7 @@ export class Forest extends Scene {
             this.pendingHits.set(strike.id, { generation: strike.generation, damage });
             this.shownHits.add(strike.id);
             for (const id of this.shownHits) if (id < strike.id - 256) this.shownHits.delete(id);
+            this.enemyHurtUntil = this.time.now + 140;
             this.enemyImage?.setTint(0xffb2a2);
             this.time.delayedCall(140, () => this.enemyImage?.clearTint());
             this.publishBattle([{ kind: 'MONSTER_HIT', amount: damage, label: '', x: this.enemy.x, y: this.enemy.y, attackId: strike.id }]);
@@ -379,21 +435,28 @@ export class Forest extends Scene {
         this.sprite.y = !dead && time < this.jumpingUntil
             ? -Math.sin((1 - (this.jumpingUntil - time) / 480) * Math.PI) * 52 : 0;
         if (dead) {
-            this.sprite.stop().setFrame('dead').setAlpha(.6);
+            playAction(this.sprite, this, this.textureKey, 'death', this.facing);
+            if (!this.anims.exists(`${this.textureKey}-death-${this.facing}`)) this.sprite.setFrame('dead');
+            this.sprite.setAlpha(.6);
             this.sprite.y = 0;
         } else if (time < this.hurtUntil) {
-            this.sprite.stop().setFrame('hurt');
+            if (this.anims.exists(`${this.textureKey}-hurt-${this.facing}`)) playAction(this.sprite, this, this.textureKey, 'hurt', this.facing);
+            else this.sprite.stop().setFrame('hurt');
         } else if (time < this.jumpingUntil) {
             const progress = 1 - (this.jumpingUntil - time) / 480;
             this.sprite.stop();
-            this.sprite.setFrame(`${this.facing}-${progress < .12 || progress > .9 ? 'crouch' : 'jump'}`);
+            const frames = this.characterSheet.animations[`jump-${this.facing}`]?.frames;
+            this.sprite.setFrame(frames ? frames[Math.min(frames.length - 1, Math.floor(progress * frames.length))]
+                : `${this.facing}-${progress < .12 || progress > .9 ? 'crouch' : 'jump'}`);
             this.sprite.y = -Math.sin(progress * Math.PI) * 52;
+        } else if (time - this.attackStartedAt >= 0 && time - this.attackStartedAt < 300
+            && this.anims.exists(`${this.textureKey}-attack-${this.attackFacing}`)) {
+            playAction(this.sprite, this, this.textureKey, 'attack', this.attackFacing, 300);
         } else {
             this.sprite.y = 0;
-            if (moved) this.sprite.play(`${this.textureKey}-walk-${this.facing}`, true);
+            if (moved) playAction(this.sprite, this, this.textureKey, 'walk', this.facing);
             else {
-                this.sprite.stop();
-                this.sprite.setFrame(defaultCharacter.idle[this.facing]);
+                playAction(this.sprite, this, this.textureKey, 'idle', this.facing);
             }
         }
         this.player.setDepth(this.player.y);
@@ -401,6 +464,7 @@ export class Forest extends Scene {
         this.shadow.setScale(1 + this.sprite.y / 160);
         this.positionCamera();
         if (this.enemy) {
+            const beforeX = this.enemy.x, beforeY = this.enemy.y;
             if (!blocked && this.enemyHp > 0) {
                 const wasReturning = this.enemyReturning;
                 const motion = moveMonster({ x: this.enemy.x, y: this.enemy.y, returning: this.enemyReturning },
@@ -417,8 +481,15 @@ export class Forest extends Scene {
             }
             this.enemy.x = Math.max(forestMap.walkArea.left, Math.min(forestMap.walkArea.right, this.enemy.x));
             this.enemy.y = Math.max(forestMap.walkArea.top, Math.min(forestMap.walkArea.bottom, this.enemy.y));
+            if (this.enemyAnimated && this.enemyImage && this.enemyHp > 0) {
+                const moving = Math.hypot(this.enemy.x - beforeX, this.enemy.y - beforeY) > .01;
+                if (Math.abs(this.enemy.x - beforeX) > .01) this.enemyFacing = this.enemy.x > beforeX ? 'east' : 'west';
+                else if (!this.enemyReturning) this.enemyFacing = this.player.x > this.enemy.x ? 'east' : 'west';
+                const action = time < this.enemyAttackUntil ? 'attack' : time < this.enemyHurtUntil ? 'hurt' : moving ? 'walk' : 'idle';
+                playAction(this.enemyImage, this, this.enemyTexture!, action, action === 'attack' ? this.enemyAttackFacing : this.enemyFacing);
+            }
             this.enemy.setDepth(this.enemy.y);
-            this.enemyShadow?.setPosition(this.enemy.x, this.enemy.y).setDepth(this.enemy.y - 1);
+            this.positionEnemyShadow();
         }
         for (const { tree } of this.obstacles) {
             if (!tree) continue;

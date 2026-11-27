@@ -1,6 +1,6 @@
 import { defaultCharacter } from './defaultCharacter';
 
-// Costumes use the same sheet dimensions and frame layout as the default character.
+// PNG layout comes from /api/costumes/{code}/sprite; legacy costumes keep the default layout.
 export function characterTextureUrl(appearanceCode?: string | null): string {
     if (!appearanceCode || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(appearanceCode)) {
         return defaultCharacter.textureUrl;

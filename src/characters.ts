@@ -1,3 +1,4 @@
+import { legacyCharacterSheet, spriteSheet, type SpriteSheet } from './game/assets/spriteSheet';
 import { request } from './api/request';
 import { defaultCharacter } from './game/characters/defaultCharacter';
 import { defaultWeapon } from './game/characters/defaultWeapon';
@@ -11,6 +12,7 @@ const app = document.querySelector<HTMLElement>('#app')!;
 const nicknameHelp = '한글, 영문, 숫자 2~12자 · 공백과 특수문자 제외';
 let renderVersion = 0;
 let disposeGame: (() => void) | undefined;
+let disposePortraits: (() => void)[] = [];
 
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string) {
@@ -27,6 +29,8 @@ function navigate(path: string) {
 
 export async function renderCharacters() {
     const version = ++renderVersion;
+    disposePortraits.forEach(dispose => dispose());
+    disposePortraits = [];
     disposeGame?.();
     disposeGame = undefined;
     document.body.classList.remove('login');
@@ -89,25 +93,53 @@ function showSelection(panel: HTMLElement, characters: Character[], notice?: str
         const card = element('button', `character-slot ${character ? 'occupied' : 'empty'}`);
         const emblem = element('span', character ? 'character-portrait' : 'slot-plus', character ? undefined : '+');
         if (character) {
-            const frame = defaultCharacter.frames['east-idle'];
-            const walk = defaultCharacter.animations['walk-east'];
-            const position = (name: typeof walk.frames[number]) => {
-                const rect = defaultCharacter.frames[name];
-                return `${rect.x / (defaultCharacter.sheetWidth - rect.w) * 100}% ${rect.y / (defaultCharacter.sheetHeight - rect.h) * 100}%`;
-            };
-            const textureUrl = characterTextureUrl(character.appearanceCode);
-            emblem.style.backgroundImage = `url('${textureUrl}')`;
-            if (textureUrl !== defaultCharacter.textureUrl) {
-                const texture = new Image();
-                texture.onerror = () => {
-                    emblem.style.backgroundImage = `url('${defaultCharacter.textureUrl}')`;
+            let portraitSheet = legacyCharacterSheet;
+            let updateWeapon = () => {};
+            let portraitAnimation: Animation | undefined;
+            let portraitUrl: string | undefined;
+            const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+            const display = (sheet: SpriteSheet, url: string) => {
+                portraitSheet = sheet;
+                portraitUrl = url;
+                portraitAnimation?.cancel();
+                const idle = sheet.animations['idle-east'].frames[0];
+                const motion = sheet.animations['walk-east'];
+                const position = (name: string) => {
+                    const frame = sheet.frames[name];
+                    return `${sheet.sheetWidth === frame.w ? 0 : frame.x / (sheet.sheetWidth - frame.w) * 100}% ${sheet.sheetHeight === frame.h ? 0 : frame.y / (sheet.sheetHeight - frame.h) * 100}%`;
                 };
-                texture.src = textureUrl;
-            }
-            emblem.style.backgroundSize = `${defaultCharacter.sheetWidth / frame.w * 100}% ${defaultCharacter.sheetHeight / frame.h * 100}%`;
-            emblem.style.backgroundPosition = position('east-idle');
-            walk.frames.forEach((name, index) => emblem.style.setProperty(`--walk-frame-${index}`, position(name)));
-            emblem.style.setProperty('--walk-duration', `${walk.frames.length / walk.frameRate}s`);
+                emblem.style.animation = 'none';
+                emblem.style.aspectRatio = `${sheet.cellWidth} / ${sheet.cellHeight}`;
+                emblem.style.backgroundImage = `url('${url}')`;
+                emblem.style.backgroundSize = `${sheet.sheetWidth / sheet.cellWidth * 100}% ${sheet.sheetHeight / sheet.cellHeight * 100}%`;
+                emblem.style.backgroundPosition = position(idle);
+                if (!motionPreference.matches) {
+                    const frames = motion.frames.map((name, index) => ({ backgroundPosition: position(name), offset: index / motion.frames.length, easing: 'steps(1, end)' }));
+                    frames.push({ backgroundPosition: position(motion.frames[0]), offset: 1, easing: 'steps(1, end)' });
+                    portraitAnimation = emblem.animate(frames, { duration: motion.frames.length / motion.frameRate * 1000, iterations: Infinity });
+                }
+                updateWeapon();
+            };
+            const preferenceChanged = () => { if (portraitUrl && emblem.isConnected) display(portraitSheet, portraitUrl); };
+            motionPreference.addEventListener('change', preferenceChanged);
+            disposePortraits.push(() => {
+                portraitAnimation?.cancel();
+                motionPreference.removeEventListener('change', preferenceChanged);
+            });
+            const textureUrl = characterTextureUrl(character.appearanceCode);
+            const texture = new Image();
+            texture.onerror = () => display(legacyCharacterSheet, defaultCharacter.textureUrl);
+            texture.onload = () => {
+                const metadata = textureUrl === defaultCharacter.textureUrl ? Promise.resolve(null)
+                    : request<unknown>(`/api/costumes/${character.appearanceCode}/sprite`);
+                void metadata.then(data => {
+                    if (!emblem.isConnected) return;
+                    const sheet = spriteSheet(data) ?? legacyCharacterSheet;
+                    if (texture.naturalWidth !== sheet.sheetWidth || texture.naturalHeight !== sheet.sheetHeight) throw new Error('에셋 크기 불일치');
+                    display(sheet, textureUrl);
+                }).catch(() => { if (emblem.isConnected) display(legacyCharacterSheet, defaultCharacter.textureUrl); });
+            };
+            texture.src = textureUrl;
             const weaponUrl = weaponTextureUrl(character.weapon?.appearanceCode, character.weapon?.itemId);
             if (weaponUrl) {
                 const weapon = element('img', 'character-weapon');
@@ -118,18 +150,20 @@ function showSelection(panel: HTMLElement, characters: Character[], notice?: str
                     if (character.weapon?.appearanceCode === defaultWeapon.key) weapon.src = defaultWeapon.textureUrl;
                     else weapon.remove();
                 };
-                weapon.onload = () => {
+                updateWeapon = () => {
+                    if (!weapon.complete || !weapon.naturalWidth) return;
                     const grip = inferWeaponGrip(weapon, weapon.naturalWidth, weapon.naturalHeight);
                     const pose = weaponPose(0, 'east', -1, 0, false);
                     const extent = Math.max(weapon.naturalWidth, weapon.naturalHeight);
                     // Match the game's 96px character and 64px weapon at any portrait size.
-                    weapon.style.width = `${64 / 96 * weapon.naturalWidth / extent * 100}%`;
-                    weapon.style.left = `${50 + pose.x / 96 * 100}%`;
+                    weapon.style.width = `${64 / 96 * portraitSheet.cellHeight / portraitSheet.cellWidth * weapon.naturalWidth / extent * 100}%`;
+                    weapon.style.left = `${50 + pose.x / 96 * portraitSheet.cellHeight / portraitSheet.cellWidth * 100}%`;
                     weapon.style.top = `${87.5 + pose.y / 96 * 100}%`;
                     weapon.style.transformOrigin = `${grip.originX * 100}% ${grip.originY * 100}%`;
                     weapon.style.transform = `translate(${-grip.originX * 100}%, ${-grip.originY * 100}%) rotate(${pose.angle - grip.axisAngle}rad)`;
                     weapon.style.visibility = 'visible';
                 };
+                weapon.onload = updateWeapon;
                 weapon.src = weaponUrl;
                 emblem.append(weapon);
             }
