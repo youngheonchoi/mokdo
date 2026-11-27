@@ -7,7 +7,7 @@ import { registerDefaultCharacterAnimations } from '../characters/registerDefaul
 import { buildForest, forestMap, isForestPositionWalkable, type Obstacle } from '../forestMap';
 import type { GameCharacter } from '../types';
 
-type Direction = keyof typeof defaultCharacter.idle;
+type Direction = 'east' | 'west';
 type SceneCallbacks = { ready: () => void; failed: () => void; position: (x: number, y: number, screenX: number, screenY: number) => void };
 
 export class Forest extends Scene {
@@ -21,14 +21,14 @@ export class Forest extends Scene {
     private cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     private keys: Record<'SPACE' | 'Z', Input.Keyboard.Key>;
     private obstacles: Obstacle[] = [];
-    private facing: Direction = 'south';
+    private facing: Direction = 'east';
     private textureKey = defaultCharacter.key as string;
     private jumpingUntil = 0;
     private jumpRequested = false;
     private attackRequested = false;
     private attackStartedAt = -Infinity;
     private attackReadyAt = 0;
-    private attackFacing: Direction = 'south';
+    private attackFacing: Direction = 'east';
     private uiBlocked = false;
     private weaponRevision = 0;
 
@@ -62,7 +62,7 @@ export class Forest extends Scene {
         registerDefaultCharacterAnimations(this, this.textureKey);
         const { x, y } = forestMap.spawn;
         this.shadow = this.add.ellipse(x, y, 28, 11, 0x13241c, .3).setDepth(y - 1);
-        this.sprite = this.add.sprite(0, 0, this.textureKey, 'south-idle').setOrigin(.5, .875).setScale(defaultCharacter.displayScale);
+        this.sprite = this.add.sprite(0, 0, this.textureKey, 'east-idle').setOrigin(.5, .875).setScale(defaultCharacter.displayScale);
         this.player = this.add.container(x, y, [this.sprite]).setDepth(y);
         const weaponKey = this.textures.exists('player-weapon') ? 'player-weapon'
             : this.character.weapon?.appearanceCode === defaultWeapon.key && this.textures.exists(defaultWeapon.key) ? defaultWeapon.key : null;
@@ -71,22 +71,19 @@ export class Forest extends Scene {
                 .setDisplaySize(defaultWeapon.displaySize, defaultWeapon.displaySize).setOrigin(.5, .85);
             this.player.add(this.weapon);
         }
-        this.cameras.main.startFollow(this.player, true, 1, 1);
         this.cameras.main.roundPixels = true;
-        this.cameras.main.centerOn(x, y);
+        this.resizeCamera();
         this.cursors = this.input.keyboard!.createCursorKeys();
         this.keys = this.input.keyboard!.addKeys('SPACE,Z') as typeof this.keys;
         this.keys.SPACE.on('down', () => { this.jumpRequested = true; });
         this.keys.Z.on('down', () => { this.attackRequested = true; });
         this.game.events.on('blur', this.resetInput, this);
-        const resizeCamera = () => {
-            this.cameras.main.setSize(this.scale.width, this.scale.height).centerOn(this.player.x, this.player.y);
-        };
+        const resizeCamera = () => this.resizeCamera();
         const updateOverlay = () => {
             const camera = this.cameras.main;
             this.callbacks.position(this.player.x, this.player.y,
-                Math.round(this.player.x - camera.worldView.x),
-                Math.round(this.player.y + this.sprite.y - 66 - camera.worldView.y));
+                Math.round((this.player.x - camera.worldView.x) * camera.zoom),
+                Math.round((this.player.y + this.sprite.y - 66 - camera.worldView.y) * camera.zoom));
         };
         this.game.events.on('postrender', updateOverlay);
         this.scale.on('resize', resizeCamera);
@@ -96,6 +93,21 @@ export class Forest extends Scene {
             this.game.events.off('postrender', updateOverlay);
         });
         this.callbacks.ready();
+    }
+
+    private resizeCamera() {
+        const camera = this.cameras.main;
+        // Keep the complete floor depth visible at every viewport aspect ratio.
+        camera.setSize(this.scale.width, this.scale.height).setZoom(this.scale.height / forestMap.height);
+        this.positionCamera();
+    }
+
+    private positionCamera() {
+        const camera = this.cameras.main;
+        const halfWidth = camera.width / camera.zoom / 2;
+        const x = halfWidth * 2 >= forestMap.width ? forestMap.width / 2
+            : Math.max(halfWidth, Math.min(forestMap.width - halfWidth, this.player.x));
+        camera.centerOn(x, forestMap.height / 2);
     }
 
     private resetInput() {
@@ -150,28 +162,35 @@ export class Forest extends Scene {
         let moved = false;
         if (distance) {
             const substeps = Math.max(1, Math.ceil(step / 4));
-            const vx = dx / distance * step / substeps, vy = dy / distance * step / substeps;
+            const vx = dx / distance * step / substeps;
+            const vy = dy / distance * step * .6 / substeps;
+            const area = forestMap.walkArea;
             for (let i = 0; i < substeps; i++) {
-                if (isForestPositionWalkable(this.player.x + vx, this.player.y, this.obstacles)) {
-                    this.player.x += vx;
-                    moved ||= Math.abs(vx) > .01;
+                const nextX = Math.max(area.left, Math.min(area.right, this.player.x + vx));
+                const nextY = Math.max(area.top, Math.min(area.bottom, this.player.y + vy));
+                if (isForestPositionWalkable(nextX, this.player.y, this.obstacles)) {
+                    moved ||= Math.abs(nextX - this.player.x) > .01;
+                    this.player.x = nextX;
                 }
-                if (isForestPositionWalkable(this.player.x, this.player.y + vy, this.obstacles)) {
-                    this.player.y += vy;
-                    moved ||= Math.abs(vy) > .01;
+                if (isForestPositionWalkable(this.player.x, nextY, this.obstacles)) {
+                    moved ||= Math.abs(nextY - this.player.y) > .01;
+                    this.player.y = nextY;
                 }
             }
-            this.facing = dx && dy ? `${dy > 0 ? 'south' : 'north'}-${dx > 0 ? 'east' : 'west'}`
-                : dx ? dx > 0 ? 'east' : 'west' : dy > 0 ? 'south' : 'north';
+            // Depth movement keeps the last horizontal facing, as in a belt scroller.
+            if (dx) this.facing = dx > 0 ? 'east' : 'west';
         }
         const jumpPressed = this.jumpRequested;
         this.jumpRequested = false;
         if (jumpPressed && time >= this.jumpingUntil) {
             this.jumpingUntil = time + 480;
-            this.sprite.play(`${this.textureKey}-jump-${this.facing}`);
         }
-        if (time < this.jumpingUntil) this.sprite.y = -Math.sin((1 - (this.jumpingUntil - time) / 480) * Math.PI) * 28;
-        else {
+        if (time < this.jumpingUntil) {
+            const progress = 1 - (this.jumpingUntil - time) / 480;
+            this.sprite.stop();
+            this.sprite.setFrame(`${this.facing}-${progress < .12 || progress > .9 ? 'crouch' : 'jump'}`);
+            this.sprite.y = -Math.sin(progress * Math.PI) * 52;
+        } else {
             this.sprite.y = 0;
             if (moved) this.sprite.play(`${this.textureKey}-walk-${this.facing}`, true);
             else {
@@ -181,6 +200,8 @@ export class Forest extends Scene {
         }
         this.player.setDepth(this.player.y);
         this.shadow.setPosition(this.player.x, this.player.y).setDepth(this.player.y - 1);
+        this.shadow.setScale(1 + this.sprite.y / 160);
+        this.positionCamera();
         for (const { tree } of this.obstacles) {
             if (!tree) continue;
             const obscuresPlayer = this.player.y < tree.y && this.player.y > tree.y - tree.displayHeight
@@ -196,17 +217,13 @@ export class Forest extends Scene {
         if (this.weapon) {
             const progress = (time - this.attackStartedAt) / 300;
             if (progress >= 0 && progress < 1) {
-                const facingAngle = {
-                    east: 0, 'south-east': Math.PI / 4, south: Math.PI / 2, 'south-west': Math.PI * 3 / 4,
-                    west: Math.PI, 'north-west': -Math.PI * 3 / 4, north: -Math.PI / 2, 'north-east': -Math.PI / 4
-                }[this.attackFacing];
+                const facingAngle = this.attackFacing === 'east' ? 0 : Math.PI;
                 const arc = facingAngle - 1.1 + (1 - (1 - progress) ** 2) * 2.2;
-                this.weapon.setPosition(Math.cos(arc) * 35, -20 + Math.sin(arc) * 22);
+                this.weapon.setPosition(Math.cos(arc) * 35, this.sprite.y - 20 + Math.sin(arc) * 22);
                 this.weapon.setRotation(arc + Math.PI / 2);
-                if (this.attackFacing.startsWith('north')) this.player.sendToBack(this.weapon);
-                else this.player.bringToTop(this.weapon);
+                this.player.bringToTop(this.weapon);
             } else {
-                this.weapon.setPosition(32, -12 + (this.reducedMotion ? 0 : Math.sin(time / 900) * 3)).setRotation(0);
+                this.weapon.setPosition(this.facing === 'east' ? 32 : -32, this.sprite.y - 12 + (this.reducedMotion ? 0 : Math.sin(time / 900) * 3)).setRotation(0);
                 this.player.bringToTop(this.weapon);
             }
         }
