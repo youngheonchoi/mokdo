@@ -1,3 +1,4 @@
+import { mountFullscreenButton } from './ui/fullscreenButton';
 import StartGame from './main';
 import type { GameCharacter } from './types';
 import { weaponTextureUrl } from './characters/weaponAppearance';
@@ -28,7 +29,10 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
     const back = node('button', 'game-leave', '캐릭터 선택');
     back.type = 'button';
     back.onclick = leave;
-    header.append(identity, location, back);
+    const actions = node('div', 'game-header-actions');
+    actions.append(back);
+    const disposeFullscreen = mountFullscreenButton(shell, actions);
+    header.append(identity, location, actions);
     const footer = node('div', 'game-footer');
     const equipped = node('div', 'game-equipped');
     function renderWeapon(current: GameCharacter) {
@@ -98,6 +102,7 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
         (game.scene.getScene('Forest') as Forest).setCharacter(current);
     }, blocked => (game.scene.getScene('Forest') as Forest).setUiBlocked(blocked));
     return () => {
+        disposeFullscreen();
         stopBattle?.();
         battleOverlay.dispose();
         disposeWindows();

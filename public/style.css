@@ -172,6 +172,17 @@ body.in-game #app { display: block; height: 100dvh; min-height: 0; }
 .game-location strong { font-size: 17px; font-weight: 500; letter-spacing: .08em; }
 .game-leave { min-height: 44px; padding: 10px 17px; color: #eee0b9; font-size: 13px; pointer-events: auto; }
 .game-leave:hover { background: #3d5037; }
+.game-header-actions { position: relative; display: flex; align-items: center; gap: 8px; pointer-events: auto; }
+.game-fullscreen { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; padding: 10px; border: 1px solid #8b815b; border-radius: 4px; color: #eee0b9; background: rgb(27 40 30 / 94%); box-shadow: 0 3px 0 rgb(12 22 16 / 45%); cursor: pointer; }
+.game-fullscreen svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.game-fullscreen:hover { background: #3d5037; }
+.game-fullscreen:focus-visible { outline: 2px solid #e9c87a; outline-offset: 3px; }
+.game-fullscreen:disabled { opacity: .45; cursor: default; }
+.game-fullscreen-message { position: absolute; right: 0; top: calc(100% + 10px); width: 210px; padding: 10px; border-radius: 4px; background: #1b281e; color: #eee0b9; font-size: 12px; line-height: 1.5; }
+.game-fullscreen-message[hidden] { display: none; }
+.game-shell:fullscreen { width: 100vw; height: 100dvh; background: #24372c; }
+.game-shell:-webkit-full-screen { width: 100vw; height: 100dvh; background: #24372c; }
+
 .game-footer { position: absolute; bottom: max(22px, env(safe-area-inset-bottom)); left: 24px; right: 24px; display: flex; align-items: flex-end; gap: 20px; pointer-events: none; z-index: 2; }
 .game-equipped { display: flex; gap: 12px; align-items: center; min-width: 166px; min-height: 64px; padding: 10px 18px; }
 .game-weapon-icon { width: 40px; height: 40px; object-fit: contain; image-rendering: pixelated; }
