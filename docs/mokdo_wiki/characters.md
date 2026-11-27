@@ -45,6 +45,10 @@ Phaser `Forest` 씬에서 장착 코스튬의 아틀라스를 로드한다. `wal
 
 ## 코스튬 보유와 장착
 
+현재 기본 지정은 Flyway V9의 `gm_costume.is_default`로 관리한다. 관리자 코스튬 상세에서 하나를 지정하면 새 캐릭터에 그 코스튬을 지급·장착한다. 초기 외형 코드 `common-character-01`에 고정하지 않으며 기존 캐릭터 장착은 유지한다. 부분 고유 인덱스와 관리자 변경 트랜잭션으로 기본 중복 지정을 막는다.
+
+관리자에서 128×352 PNG(최대 5MB)를 업로드하면 Neon Storage 키를 `gm_costume.image_key`에 저장한다. 게임은 `/api/costumes/{appearanceCode}/image`로 인증 후 조회하고 서버가 공개 스토리지 PNG를 전달한다. 외형 코드를 바꿔도 업로드한 파일은 유지된다. 미업로드 코스튬은 로컬 파일을 사용한다. 아래 V5/V6 설명은 초기 스키마·기본 데이터 기록이며 현재 업로드·기본 관리 방식은 [관리자 문서](admin.md)를 따른다.
+
 `V5__gm_costume.sql`은 다음 구조를 추가한다. 이어서 `V6__gm_character_default_costume.sql`이 기본 코스튬을 등록하고 기존 회원 모두에게 지급하며, NULL인 장착 값을 기본 코스튬으로 채운 뒤 NOT NULL을 적용한다. 기존에 장착한 다른 코스튬은 유지한다.
 
 - `gm_costume`: 코스튬 정의(`costume_id`, `name`, 고유 `appearance_code`).
@@ -55,11 +59,11 @@ Phaser `Forest` 씬에서 장착 코스튬의 아틀라스를 로드한다. `wal
 
 새 코스튬 시트는 현재 기본 캐릭터와 동일한 128×352 크기와 32×32 셀의 43개 프레임 배치를 사용해야 한다. 이미지 파일과 코스튬 정의를 함께 배포하면 선택창의 기존 걷기 모션을 재사용한다. 무기 표시는 코스튬과 별개로 유지한다.
 
-캐릭터 생성 시 서버는 기본 코스튬 정의를 외형 코드로 조회해 회원에게 중복 없이 지급한 뒤 해당 UUID를 장착해 저장한다. 기본 코스튬으로 돌아갈 때도 일반 코스튬과 동일하게 보유한 UUID를 장착한다. 임의 구매·결제·보유 지급 API와 코스튬 선택 UI는 아직 구현하지 않았다. 구매 연동 시 서버에서 결제/획득을 검증한 뒤 `mb_member_costume`에 지급해야 하며 클라이언트 요청만으로 보유 행을 생성하면 안 된다. 장착 API 성공 후 캐릭터 목록을 다시 조회하면 선택창에 반영된다.
+캐릭터 생성 시 서버는 `is_default = TRUE`인 기본 코스튬 정의를 조회해 회원에게 중복 없이 지급한 뒤 해당 UUID를 장착해 저장한다. 기본 코스튬으로 돌아갈 때도 일반 코스튬과 동일하게 보유한 UUID를 장착한다. 임의 구매·결제·보유 지급 API와 코스튬 선택 UI는 아직 구현하지 않았다. 구매 연동 시 서버에서 결제/획득을 검증한 뒤 `mb_member_costume`에 지급해야 하며 클라이언트 요청만으로 보유 행을 생성하면 안 된다. 장착 API 성공 후 캐릭터 목록을 다시 조회하면 선택창에 반영된다.
 
 ## 로컬 에셋 파일 관리
 
-관리자 업로드 기능이 생기기 전에는 `application-local.properties`의 `app.assets.path` 폴더에 직접 PNG 파일을 넣는다. 기본값은 `${ASSET_PATH:../local-assets}`이며 `backend/`를 작업 디렉터리로 실행하면 프로젝트 루트의 `local-assets/`를 가리킨다. IDE의 작업 디렉터리가 다르면 절대 경로로 설정하거나 `ASSET_PATH` 환경변수를 지정한다. 경로 설정을 바꾸면 백엔드를 재시작한다.
+관리자에서 이미지를 업로드하지 않은 코스튬은 `application-local.properties`의 `app.assets.path` 폴더에 직접 PNG 파일을 넣는다. 기본값은 `${ASSET_PATH:../local-assets}`이며 `backend/`를 작업 디렉터리로 실행하면 프로젝트 루트의 `local-assets/`를 가리킨다. IDE의 작업 디렉터리가 다르면 절대 경로로 설정하거나 `ASSET_PATH` 환경변수를 지정한다. 경로 설정을 바꾸면 백엔드를 재시작한다.
 
 ```properties
 app.assets.path=/Users/okerry/Desktop/okerry/project/mokdo/local-assets

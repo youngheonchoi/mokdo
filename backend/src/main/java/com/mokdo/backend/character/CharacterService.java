@@ -14,7 +14,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class CharacterService {
-    static final String DEFAULT_COSTUME_CODE = "common-character-01";
     private final JdbcTemplate jdbc;
     private final ItemService items;
 
@@ -93,11 +92,11 @@ public class CharacterService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 사용 중인 닉네임이에요.");
         }
         UUID characterId = UUID.randomUUID();
-        UUID defaultCostumeId = jdbc.queryForObject(
-                "SELECT costume_id FROM gm_costume WHERE appearance_code = ?", UUID.class, DEFAULT_COSTUME_CODE);
-        if (defaultCostumeId == null) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "기본 코스튬 설정을 확인해 주세요.");
-        }
+        var defaults = jdbc.query("SELECT costume_id, name, appearance_code FROM gm_costume WHERE is_default = TRUE FOR SHARE",
+                (rs, row) -> new CostumeResponse(rs.getObject("costume_id", UUID.class), rs.getString("name"), rs.getString("appearance_code")));
+        if (defaults.size() != 1) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "기본 코스튬 설정을 확인해 주세요.");
+        var defaultCostume = defaults.getFirst();
+        UUID defaultCostumeId = defaultCostume.costumeId();
         jdbc.update("""
                 INSERT INTO mb_member_costume (member_costume_id, member_id, costume_id)
                 VALUES (?, ?, ?) ON CONFLICT (member_id, costume_id) DO NOTHING
@@ -113,7 +112,7 @@ public class CharacterService {
                     "닉네임 또는 슬롯이 이미 사용 중이에요. 다시 확인해 주세요.");
         }
         WeaponResponse weapon = items.grantDefaultWeapon(characterId);
-        return new CharacterResponse(characterId, slotNo, normalized, defaultCostumeId, DEFAULT_COSTUME_CODE, weapon);
+        return new CharacterResponse(characterId, slotNo, normalized, defaultCostumeId, defaultCostume.appearanceCode(), weapon);
     }
 
     @Transactional

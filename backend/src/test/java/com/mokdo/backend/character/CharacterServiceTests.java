@@ -105,6 +105,27 @@ class CharacterServiceTests {
     }
 
     @Test
+    void characterUsesCurrentlySelectedDefaultInsteadOfLegacyCode() {
+        stubMember("ACT");
+        UUID selectedId = UUID.randomUUID();
+        when(jdbc.query(contains("WHERE is_default = TRUE"), any(RowMapper.class)))
+                .thenReturn(List.of(new CharacterService.CostumeResponse(selectedId, "새 기본", "new-default")));
+        var result = characters.create(memberId, 1, "새캐릭터");
+        assertEquals(selectedId, result.equippedCostumeId());
+        assertEquals("new-default", result.appearanceCode());
+        verify(jdbc).update(contains("INSERT INTO mb_member_costume"), any(UUID.class), eq(memberId), eq(selectedId));
+    }
+
+    @Test
+    void missingDefaultPreventsCreation() {
+        stubMember("ACT");
+        when(jdbc.query(contains("WHERE is_default = TRUE"), any(RowMapper.class))).thenReturn(List.of());
+        var exception = assertThrows(ResponseStatusException.class, () -> characters.create(memberId, 1, "새캐릭터"));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatusCode());
+        verify(jdbc, never()).update(anyString(), any(Object[].class));
+    }
+
+    @Test
     void returnsConflictWhenNicknameIsClaimedConcurrently() {
         stubMember("ACT");
         when(jdbc.update(contains("INSERT INTO gm_character"), any(UUID.class), eq(memberId), eq(1), eq("모험가"), eq(defaultCostumeId)))
@@ -227,7 +248,7 @@ class CharacterServiceTests {
 
     private void stubMember(String status) {
         when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(memberId))).thenReturn(List.of(status));
-        when(jdbc.queryForObject(contains("SELECT costume_id FROM gm_costume"), eq(UUID.class), eq("common-character-01")))
-                .thenReturn(defaultCostumeId);
+        when(jdbc.query(contains("WHERE is_default = TRUE"), any(RowMapper.class)))
+                .thenReturn(List.of(new CharacterService.CostumeResponse(defaultCostumeId, "기본 코스튬", "common-character-01")));
     }
 }
