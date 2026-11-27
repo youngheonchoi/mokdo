@@ -75,7 +75,7 @@ class CharacterServiceTests {
     void rejectsOccupiedSlot() {
         stubMember("ACT");
         when(jdbc.query(contains("SELECT g.character_id"), any(RowMapper.class), eq(memberId)))
-                .thenReturn(List.of(new CharacterService.CharacterResponse(UUID.randomUUID(), 2, "기존캐릭터", defaultCostumeId, "common-character-01", null)));
+                .thenReturn(List.of(new CharacterService.CharacterResponse(UUID.randomUUID(), 2, "기존캐릭터", defaultCostumeId, "common-character-01", null, 1, 0, 100, 10, 2, null)));
         var exception = assertThrows(ResponseStatusException.class, () -> characters.create(memberId, 2, "새캐릭터"));
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
         verify(jdbc, never()).update(anyString(), any(Object[].class));
@@ -98,6 +98,11 @@ class CharacterServiceTests {
         assertEquals("모험가", result.nickname());
         assertEquals(defaultCostumeId, result.equippedCostumeId());
         assertEquals("common-character-01", result.appearanceCode());
+        assertEquals(1, result.level());
+        assertEquals(0, result.exp());
+        assertEquals(100, result.maxHp());
+        assertEquals(10, result.attack());
+        assertEquals(2, result.defense());
         var order = inOrder(jdbc);
         order.verify(jdbc).update(contains("INSERT INTO mb_member_costume"), any(UUID.class), eq(memberId), eq(defaultCostumeId));
         order.verify(jdbc).update(contains("INSERT INTO gm_character"), eq(result.characterId()), eq(memberId), eq(3), eq("모험가"), eq(defaultCostumeId));
@@ -222,6 +227,12 @@ class CharacterServiceTests {
         when(rs.getString("nickname")).thenReturn("모험가");
         when(rs.getObject("equipped_costume_id", UUID.class)).thenReturn(costumeId);
         when(rs.getString("appearance_code")).thenReturn("forest-ranger");
+        when(rs.getInt("level")).thenReturn(3);
+        when(rs.getLong("exp")).thenReturn(50L);
+        when(rs.getInt("max_hp")).thenReturn(120);
+        when(rs.getInt("attack")).thenReturn(14);
+        when(rs.getInt("defense")).thenReturn(4);
+        when(rs.getObject("required_exp", Long.class)).thenReturn(300L);
         when(jdbc.query(contains("JOIN gm_costume"), any(RowMapper.class), eq(memberId)))
                 .thenAnswer(invocation -> {
                     RowMapper<CharacterService.CharacterResponse> mapper = invocation.getArgument(1);
@@ -232,6 +243,12 @@ class CharacterServiceTests {
         assertEquals("forest-ranger", character.appearanceCode());
         assertEquals(characterId, character.characterId());
         assertNull(character.weapon());
+        assertEquals(3, character.level());
+        assertEquals(50L, character.exp());
+        assertEquals(120, character.maxHp());
+        assertEquals(14, character.attack());
+        assertEquals(4, character.defense());
+        assertEquals(300L, character.requiredExp());
         UUID characterItemId = UUID.randomUUID();
         UUID itemId = UUID.randomUUID();
         when(rs.getObject("weapon_character_item_id", UUID.class)).thenReturn(characterItemId);
@@ -246,7 +263,19 @@ class CharacterServiceTests {
         assertEquals("wooden-club", weapon.appearanceCode());
     }
 
+    @Test
+    void refusesCreationWhenInitialLevelSettingsAreMissing() {
+        stubMember("ACT");
+        when(jdbc.query(contains("FROM gm_character_level WHERE level = 1"), any(RowMapper.class))).thenReturn(List.of());
+        var error = assertThrows(ResponseStatusException.class, () -> characters.create(memberId, 1, "모험가"));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, error.getStatusCode());
+        verify(jdbc, never()).update(contains("INSERT INTO gm_character"), any(Object[].class));
+        verifyNoInteractions(items);
+    }
+
     private void stubMember(String status) {
+        when(jdbc.query(contains("FROM gm_character_level WHERE level = 1"), any(RowMapper.class)))
+                .thenReturn(List.of(new CharacterService.LevelStats(100, 10, 2, null)));
         when(jdbc.query(contains("FOR UPDATE"), any(RowMapper.class), eq(memberId))).thenReturn(List.of(status));
         when(jdbc.query(contains("WHERE is_default = TRUE"), any(RowMapper.class)))
                 .thenReturn(List.of(new CharacterService.CostumeResponse(defaultCostumeId, "기본 코스튬", "common-character-01")));

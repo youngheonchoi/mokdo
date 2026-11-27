@@ -25,9 +25,11 @@ public class CharacterService {
     public List<CharacterResponse> list(UUID memberId) {
         return jdbc.query("""
                 SELECT g.character_id, slot_no, nickname, equipped_costume_id, c.appearance_code,
+                       g.level, g.exp, l.max_hp, l.attack, l.defense, l.required_exp,
                        e.character_item_id AS weapon_character_item_id, i.item_id AS weapon_item_id,
                        i.item_code AS weapon_item_code, i.name AS weapon_name, i.appearance_code AS weapon_appearance_code
                 FROM gm_character g JOIN gm_costume c ON c.costume_id = equipped_costume_id
+                JOIN gm_character_level l ON l.level = g.level
                 LEFT JOIN gm_character_equipment e ON e.character_id = g.character_id AND e.slot_code = 'WEAPON'
                 LEFT JOIN gm_character_item ci ON ci.character_item_id = e.character_item_id
                 LEFT JOIN gm_item i ON i.item_id = ci.item_id
@@ -37,7 +39,9 @@ public class CharacterService {
                 rs.getObject("equipped_costume_id", UUID.class), rs.getString("appearance_code"),
                 rs.getObject("weapon_character_item_id", UUID.class) == null ? null : new WeaponResponse(
                         rs.getObject("weapon_character_item_id", UUID.class), rs.getObject("weapon_item_id", UUID.class),
-                        rs.getString("weapon_item_code"), rs.getString("weapon_name"), rs.getString("weapon_appearance_code"))), memberId);
+                        rs.getString("weapon_item_code"), rs.getString("weapon_name"), rs.getString("weapon_appearance_code")),
+                rs.getInt("level"), rs.getLong("exp"), rs.getInt("max_hp"), rs.getInt("attack"), rs.getInt("defense"),
+                rs.getObject("required_exp", Long.class)), memberId);
     }
 
     public List<CostumeResponse> ownedCostumes(UUID memberId) {
@@ -96,6 +100,10 @@ public class CharacterService {
                 (rs, row) -> new CostumeResponse(rs.getObject("costume_id", UUID.class), rs.getString("name"), rs.getString("appearance_code")));
         if (defaults.size() != 1) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "기본 코스튬 설정을 확인해 주세요.");
         var defaultCostume = defaults.getFirst();
+        var levels = jdbc.query("SELECT max_hp, attack, defense, required_exp FROM gm_character_level WHERE level = 1 FOR SHARE",
+                (rs, row) -> new LevelStats(rs.getInt("max_hp"), rs.getInt("attack"), rs.getInt("defense"), rs.getObject("required_exp", Long.class)));
+        if (levels.size() != 1) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "1레벨 능력치 설정을 확인해 주세요.");
+        var stats = levels.getFirst();
         UUID defaultCostumeId = defaultCostume.costumeId();
         jdbc.update("""
                 INSERT INTO mb_member_costume (member_costume_id, member_id, costume_id)
@@ -112,7 +120,8 @@ public class CharacterService {
                     "닉네임 또는 슬롯이 이미 사용 중이에요. 다시 확인해 주세요.");
         }
         WeaponResponse weapon = items.grantDefaultWeapon(characterId);
-        return new CharacterResponse(characterId, slotNo, normalized, defaultCostumeId, defaultCostume.appearanceCode(), weapon);
+        return new CharacterResponse(characterId, slotNo, normalized, defaultCostumeId, defaultCostume.appearanceCode(), weapon,
+                1, 0, stats.maxHp(), stats.attack(), stats.defense(), stats.requiredExp());
     }
 
     @Transactional
@@ -144,6 +153,8 @@ public class CharacterService {
     }
 
     public record CharacterResponse(UUID characterId, int slotNo, String nickname,
-            UUID equippedCostumeId, String appearanceCode, WeaponResponse weapon) { }
+            UUID equippedCostumeId, String appearanceCode, WeaponResponse weapon,
+            int level, long exp, int maxHp, int attack, int defense, Long requiredExp) { }
+    public record LevelStats(int maxHp, int attack, int defense, Long requiredExp) { }
     public record CostumeResponse(UUID costumeId, String name, String appearanceCode) { }
 }
