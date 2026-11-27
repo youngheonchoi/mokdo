@@ -9,12 +9,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 @Configuration
 public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, GoogleOidcUserService users,
             GoogleAuthorizationRequestResolver authorizationRequests,
+            GoogleMemberService members,
             GoogleLoginFailureHandler loginFailureHandler,
             @Value("${spring.security.oauth2.client.registration.google.redirect-uri}") String redirectUri,
             @Value("${app.frontend-url}") String frontendUrl) throws Exception {
@@ -34,7 +36,8 @@ public class SecurityConfig {
                         .redirectionEndpoint(endpoint -> endpoint.baseUri(callbackPath))
                         .userInfoEndpoint(info -> info.oidcUserService(users))
                         .defaultSuccessUrl(frontend + "/characters", true)
-                        .failureHandler(loginFailureHandler));
+                        .failureHandler(loginFailureHandler))
+                .addFilterBefore(new MemberStatusFilter(members), AuthorizationFilter.class);
 
         return http.build();
     }

@@ -73,6 +73,13 @@ async function initialize() {
         if (response.status !== 401) {
             throw new Error('Session check failed');
         }
+        const failure = await response.json().catch(() => null);
+        if (failure?.code === 'account_disabled') {
+            rememberLogin(false);
+            window.history.replaceState(null, '', '/');
+            showLogin('이용이 정지된 계정입니다. 관리자에게 문의해 주세요.');
+            return;
+        }
         const loginFailed = new URLSearchParams(window.location.search).get('login') === 'failed';
         if (loginFailed) {
             rememberLogin(false);

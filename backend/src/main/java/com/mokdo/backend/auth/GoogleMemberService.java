@@ -16,6 +16,13 @@ public class GoogleMemberService {
         this.jdbc = jdbc;
     }
 
+    @Transactional(readOnly = true)
+    public boolean isActive(UUID memberId) {
+        var statuses = jdbc.query("SELECT status FROM mb_member WHERE member_id = ?",
+                (rs, row) -> rs.getString("status"), memberId);
+        return statuses.size() == 1 && "ACT".equals(statuses.getFirst());
+    }
+
     @Transactional
     public UUID login(String subject) {
         if (subject == null || subject.isBlank() || subject.length() > 255) {

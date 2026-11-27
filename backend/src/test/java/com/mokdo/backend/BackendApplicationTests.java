@@ -35,6 +35,9 @@ import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ActiveProfiles("local")
 @SpringBootTest(properties = {
@@ -58,6 +61,8 @@ class BackendApplicationTests {
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+        when(jdbc.query(eq("SELECT status FROM mb_member WHERE member_id = ?"), any(RowMapper.class), any(UUID.class)))
+                .thenReturn(List.of("ACT"));
     }
 
     @Test
@@ -77,6 +82,38 @@ class BackendApplicationTests {
         mvc.perform(get("/login/oauth2/code/google").param("code", "test-code").param("state", "missing-state"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("http://localhost:8080/?login=failed"));
+    }
+
+    @Test
+    void bannedMemberLosesExistingSessionOnNextRequest() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        when(jdbc.query(eq("SELECT status FROM mb_member WHERE member_id = ?"), any(RowMapper.class), eq(memberId)))
+                .thenReturn(List.of("BAN"));
+        var session = new MockHttpSession();
+        mvc.perform(get("/api/auth/session").session(session).with(oidcLogin().oidcUser(memberUser(memberId))))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("account_disabled"))
+                .andExpect(header().string("Cache-Control", "no-store"));
+        assertTrue(session.isInvalid());
+    }
+
+    @Test
+    void bannedMemberCannotCreateCharacterWithExistingLogin() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        when(jdbc.query(eq("SELECT status FROM mb_member WHERE member_id = ?"), any(RowMapper.class), eq(memberId)))
+                .thenReturn(List.of("BAN"));
+        mvc.perform(post("/api/characters").with(oidcLogin().oidcUser(memberUser(memberId))).with(csrf())
+                        .contentType("application/json").content("{\"nickname\":\"차단할요청\"}"))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("account_disabled"));
+        verify(jdbc, never()).update(anyString(), any(Object[].class));
+    }
+
+    @Test
+    void removedMemberCannotContinueUsingSession() throws Exception {
+        UUID memberId = UUID.randomUUID();
+        when(jdbc.query(eq("SELECT status FROM mb_member WHERE member_id = ?"), any(RowMapper.class), eq(memberId)))
+                .thenReturn(List.of());
+        mvc.perform(get("/api/auth/session").with(oidcLogin().oidcUser(memberUser(memberId))))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -168,7 +205,7 @@ class BackendApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(content().json("[]"));
-        verify(jdbc).query(contains("WHERE member_id = ?"), any(RowMapper.class), eq(memberId));
+        verify(jdbc).query(contains("FROM gm_character g JOIN"), any(RowMapper.class), eq(memberId));
     }
 
     @Test

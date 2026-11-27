@@ -7,6 +7,7 @@
 - `/`: 평화로운 숲길과 푸른 하늘의 픽셀 RPG 배경 가운데 `Google로 로그인` 버튼. 배경 이미지(`public/assets/login-forest.png`)는 로그인 화면과 `/characters`에서 공통으로 표시하고 화면 비율에 맞춰 중앙 기준으로 채운다.
 - 버튼 → `/oauth2/authorization/google` → Google 인증 → 프로필의 `spring.security.oauth2.client.registration.google.redirect-uri`(서버 콜백).
 - 서버는 Google ID 토큰을 검증하고 `sub`로 `mb_member_social`의 `GOOGLE` 연동을 조회한다.
+- 로그인된 사용자도 매 서버 요청마다 `mb_member.status`를 확인한다. 관리자에서 밴 처리한 사용자는 다음 요청에서 세션이 종료되고 `401 account_disabled`를 받는다. 밴 해제 후 다시 로그인할 수 있다.
 - 신규 회원은 `mb_member`와 `mb_member_social`에 UUID로 함께 저장한다. 기존 회원은 재사용하며 `BAN` 계정은 로그인을 거절한다.
 - 인증 성공 → `/characters`. `/api/auth/session`에서 서버 세션을 확인한 다음 로그인 화면과 같은 숲길 배경에 캐릭터 선택 슬롯 3개를 표시한다. 빈 슬롯에서 닉네임 중복 확인 후 캐릭터를 생성한다. 상세 동작은 [캐릭터 선택과 생성](characters.md)을 참고한다.
 - 유효한 세션이 있으면 메인 접근 시 버튼 없이 바로 숲길 배경의 `/characters` 화면을 표시한다.
