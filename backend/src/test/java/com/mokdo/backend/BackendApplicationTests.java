@@ -361,4 +361,19 @@ class BackendApplicationTests {
         return new MemberOidcUser(new DefaultOidcUser(
                 List.of(new SimpleGrantedAuthority("ROLE_USER")), token), memberId);
     }
+
+    @Test
+    void hatEquipmentRequiresAuthenticationCsrfAndOwnedCharacter() throws Exception {
+        String path = "/api/characters/" + UUID.randomUUID() + "/hat";
+        mvc.perform(put(path).with(csrf()).contentType("application/json").content("{\"characterItemId\":null}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put(path).with(oidcLogin().oidcUser(memberUser(UUID.randomUUID())))
+                        .contentType("application/json").content("{\"characterItemId\":null}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(put(path).with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))).with(csrf())
+                        .contentType("application/json").content("{\"characterItemId\":null}"))
+                .andExpect(status().isNotFound());
+    }
+
+
 }

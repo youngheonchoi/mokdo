@@ -32,7 +32,7 @@ class ItemServiceTests {
     void grantsAndEquipsDefaultWeaponAsSeparateOwnedInstance() {
         UUID itemId = UUID.randomUUID();
         when(jdbc.query(contains("SELECT item_id, item_code"), any(RowMapper.class), eq("wooden-club")))
-                .thenReturn(List.of(new ItemService.WeaponResponse(null, itemId, "wooden-club", "몽둥이", "wooden-club")));
+                .thenReturn(List.of(new ItemService.WeaponResponse(null, itemId, "wooden-club", "몽둥이", "wooden-club", 0, 0, 0)));
         var result = items.grantDefaultWeapon(characterId);
         assertNotNull(result.characterItemId());
         assertEquals(itemId, result.itemId());
@@ -95,6 +95,7 @@ class ItemServiceTests {
         when(rs.getString("item_type")).thenReturn("WEAPON");
         when(rs.getString("appearance_code")).thenReturn("wooden-club");
         when(rs.getInt("quantity")).thenReturn(1);
+        when(rs.getInt("required_level")).thenReturn(10);
         when(rs.getBoolean("equipped")).thenReturn(true);
         when(jdbc.query(contains("WHERE g.member_id = ? AND g.character_id = ?"), any(RowMapper.class), eq(memberId), eq(characterId)))
                 .thenAnswer(invocation -> {
@@ -105,6 +106,7 @@ class ItemServiceTests {
         assertTrue(item.equipped());
         assertEquals(characterItemId, item.characterItemId());
         assertEquals("몽둥이", item.name());
+        assertEquals(10, item.requiredLevel());
     }
 
     private void ownCharacter() {

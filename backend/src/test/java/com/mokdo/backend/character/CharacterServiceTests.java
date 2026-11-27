@@ -229,9 +229,9 @@ class CharacterServiceTests {
         when(rs.getString("appearance_code")).thenReturn("forest-ranger");
         when(rs.getInt("level")).thenReturn(3);
         when(rs.getLong("exp")).thenReturn(50L);
-        when(rs.getInt("max_hp")).thenReturn(120);
-        when(rs.getInt("attack")).thenReturn(14);
-        when(rs.getInt("defense")).thenReturn(4);
+        when(rs.getLong("max_hp")).thenReturn(120L);
+        when(rs.getLong("attack")).thenReturn(14L);
+        when(rs.getLong("defense")).thenReturn(4L);
         when(rs.getObject("required_exp", Long.class)).thenReturn(300L);
         when(jdbc.query(contains("JOIN gm_costume"), any(RowMapper.class), eq(memberId)))
                 .thenAnswer(invocation -> {

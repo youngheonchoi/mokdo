@@ -25,22 +25,35 @@ public class CharacterService {
     public List<CharacterResponse> list(UUID memberId) {
         return jdbc.query("""
                 SELECT g.character_id, slot_no, nickname, equipped_costume_id, c.appearance_code,
-                       g.level, g.exp, l.max_hp, l.attack, l.defense, l.required_exp,
+                       g.level, g.exp, l.max_hp::bigint + bonus.hp AS max_hp,
+                       l.attack::bigint + bonus.attack AS attack, l.defense::bigint + bonus.defense AS defense, l.required_exp,
                        e.character_item_id AS weapon_character_item_id, i.item_id AS weapon_item_id,
-                       i.item_code AS weapon_item_code, i.name AS weapon_name, i.appearance_code AS weapon_appearance_code
+                       i.item_code AS weapon_item_code, i.name AS weapon_name, i.appearance_code AS weapon_appearance_code,
+                       i.attack AS weapon_attack, i.defense AS weapon_defense, i.hp AS weapon_hp
                 FROM gm_character g JOIN gm_costume c ON c.costume_id = equipped_costume_id
                 JOIN gm_character_level l ON l.level = g.level
                 LEFT JOIN gm_character_equipment e ON e.character_id = g.character_id AND e.slot_code = 'WEAPON'
                 LEFT JOIN gm_character_item ci ON ci.character_item_id = e.character_item_id
-                LEFT JOIN gm_item i ON i.item_id = ci.item_id
+                LEFT JOIN gm_item i ON i.item_id = ci.item_id AND i.required_level <= g.level
+                    AND i.status = 'ACT' AND i.item_type = 'WEAPON' AND i.equip_slot_code = 'WEAPON' AND ci.quantity = 1
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(SUM(gi.attack), 0) AS attack, COALESCE(SUM(gi.defense), 0) AS defense, COALESCE(SUM(gi.hp), 0) AS hp
+                    FROM gm_character_equipment ge
+                    JOIN gm_character_item gci ON gci.character_item_id = ge.character_item_id AND gci.character_id = g.character_id
+                    JOIN gm_item gi ON gi.item_id = gci.item_id
+                    WHERE ge.character_id = g.character_id AND ge.slot_code IN ('WEAPON', 'HAT')
+                      AND gi.item_type = ge.slot_code AND gi.equip_slot_code = ge.slot_code
+                      AND gi.status = 'ACT' AND gi.required_level <= g.level AND gci.quantity = 1
+                ) bonus ON TRUE
                 WHERE member_id = ? ORDER BY slot_no
                 """, (rs, row) -> new CharacterResponse(rs.getObject("character_id", UUID.class),
                 rs.getInt("slot_no"), rs.getString("nickname"),
                 rs.getObject("equipped_costume_id", UUID.class), rs.getString("appearance_code"),
-                rs.getObject("weapon_character_item_id", UUID.class) == null ? null : new WeaponResponse(
+                rs.getObject("weapon_item_id", UUID.class) == null ? null : new WeaponResponse(
                         rs.getObject("weapon_character_item_id", UUID.class), rs.getObject("weapon_item_id", UUID.class),
-                        rs.getString("weapon_item_code"), rs.getString("weapon_name"), rs.getString("weapon_appearance_code")),
-                rs.getInt("level"), rs.getLong("exp"), rs.getInt("max_hp"), rs.getInt("attack"), rs.getInt("defense"),
+                        rs.getString("weapon_item_code"), rs.getString("weapon_name"), rs.getString("weapon_appearance_code"),
+                        rs.getInt("weapon_attack"), rs.getInt("weapon_defense"), rs.getInt("weapon_hp")),
+                rs.getInt("level"), rs.getLong("exp"), rs.getLong("max_hp"), rs.getLong("attack"), rs.getLong("defense"),
                 rs.getObject("required_exp", Long.class)), memberId);
     }
 
@@ -121,7 +134,9 @@ public class CharacterService {
         }
         WeaponResponse weapon = items.grantDefaultWeapon(characterId);
         return new CharacterResponse(characterId, slotNo, normalized, defaultCostumeId, defaultCostume.appearanceCode(), weapon,
-                1, 0, stats.maxHp(), stats.attack(), stats.defense(), stats.requiredExp());
+                1, 0, (long) stats.maxHp() + (weapon == null ? 0 : weapon.hp()),
+                (long) stats.attack() + (weapon == null ? 0 : weapon.attack()),
+                (long) stats.defense() + (weapon == null ? 0 : weapon.defense()), stats.requiredExp());
     }
 
     @Transactional
@@ -154,7 +169,7 @@ public class CharacterService {
 
     public record CharacterResponse(UUID characterId, int slotNo, String nickname,
             UUID equippedCostumeId, String appearanceCode, WeaponResponse weapon,
-            int level, long exp, int maxHp, int attack, int defense, Long requiredExp) { }
+            int level, long exp, long maxHp, long attack, long defense, Long requiredExp) { }
     public record LevelStats(int maxHp, int attack, int defense, Long requiredExp) { }
     public record CostumeResponse(UUID costumeId, String name, String appearanceCode) { }
 }

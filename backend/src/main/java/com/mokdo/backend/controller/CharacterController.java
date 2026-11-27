@@ -92,6 +92,14 @@ public class CharacterController {
                 .body(new ErrorResponse(exception.getReason()));
     }
 
+    @PutMapping("/api/characters/{characterId}/hat")
+    public ResponseEntity<Void> equipHat(@AuthenticationPrincipal MemberOidcUser user,
+            @PathVariable UUID characterId, @RequestBody EquipWeaponRequest request) {
+        items.equipHat(user.getMemberId(), characterId, request.characterItemId());
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+
     public record CreateRequest(int slotNo, String nickname) { }
     public record DeleteRequest(String nickname) { }
     public record EquipCostumeRequest(UUID costumeId) { }
