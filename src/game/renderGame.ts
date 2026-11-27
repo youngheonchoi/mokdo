@@ -27,7 +27,7 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
     header.append(identity, location, back);
     const footer = node('div', 'game-footer');
     const equipped = node('div', 'game-equipped');
-    const weaponUrl = weaponTextureUrl(character.weapon?.appearanceCode);
+    const weaponUrl = weaponTextureUrl(character.weapon?.appearanceCode, character.weapon?.itemId);
     if (weaponUrl) {
         const icon = node('img', 'game-weapon-icon');
         icon.alt = '';

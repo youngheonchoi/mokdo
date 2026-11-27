@@ -42,7 +42,7 @@ export class Forest extends Scene {
         this.load.atlas(defaultCharacter.key, defaultCharacter.textureUrl, defaultCharacterAtlas());
         const costume = characterTextureUrl(this.character.appearanceCode);
         if (costume !== defaultCharacter.textureUrl) this.load.atlas('player-costume', costume, defaultCharacterAtlas());
-        const weapon = weaponTextureUrl(this.character.weapon?.appearanceCode);
+        const weapon = weaponTextureUrl(this.character.weapon?.appearanceCode, this.character.weapon?.itemId);
         if (weapon) {
             this.load.image('player-weapon', weapon);
             if (this.character.weapon?.appearanceCode === defaultWeapon.key) this.load.image(defaultWeapon.key, defaultWeapon.textureUrl);

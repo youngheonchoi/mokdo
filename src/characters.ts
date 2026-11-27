@@ -120,7 +120,7 @@ function showSelection(panel: HTMLElement, characters: Character[], notice?: str
             emblem.style.backgroundPosition = position('south-idle');
             walk.frames.forEach((name, index) => emblem.style.setProperty(`--walk-frame-${index}`, position(name)));
             emblem.style.setProperty('--walk-duration', `${walk.frames.length / walk.frameRate}s`);
-            const weaponUrl = weaponTextureUrl(character.weapon?.appearanceCode);
+            const weaponUrl = weaponTextureUrl(character.weapon?.appearanceCode, character.weapon?.itemId);
             if (weaponUrl) {
                 const weapon = element('img', 'character-weapon');
                 weapon.alt = '';
