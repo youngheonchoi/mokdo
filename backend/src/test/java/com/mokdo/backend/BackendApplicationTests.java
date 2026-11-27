@@ -73,6 +73,13 @@ class BackendApplicationTests {
     }
 
     @Test
+    void callbackWithoutSavedAuthorizationRequestUsesFailureHandler() throws Exception {
+        mvc.perform(get("/login/oauth2/code/google").param("code", "test-code").param("state", "missing-state"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("http://localhost:8080/?login=failed"));
+    }
+
+    @Test
     void loginStartsGoogleOidcWithStateAndConfiguredCallback() throws Exception {
         mvc.perform(get("/oauth2/authorization/google"))
                 .andExpect(status().is3xxRedirection())

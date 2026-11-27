@@ -15,6 +15,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, GoogleOidcUserService users,
             GoogleAuthorizationRequestResolver authorizationRequests,
+            GoogleLoginFailureHandler loginFailureHandler,
             @Value("${spring.security.oauth2.client.registration.google.redirect-uri}") String redirectUri,
             @Value("${app.frontend-url}") String frontendUrl) throws Exception {
         String frontend = frontendUrl.replaceAll("/+$", "");
@@ -33,7 +34,7 @@ public class SecurityConfig {
                         .redirectionEndpoint(endpoint -> endpoint.baseUri(callbackPath))
                         .userInfoEndpoint(info -> info.oidcUserService(users))
                         .defaultSuccessUrl(frontend + "/characters", true)
-                        .failureUrl(frontend + "/?login=failed"));
+                        .failureHandler(loginFailureHandler));
 
         return http.build();
     }
