@@ -5,6 +5,8 @@ export type GameCharacter = {
     level?: number;
     exp?: number;
     maxHp?: number;
+    currentHp?: number;
+    currency?: number;
     attack?: number;
     defense?: number;
     requiredExp?: number | null;

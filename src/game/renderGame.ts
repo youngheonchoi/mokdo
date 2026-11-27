@@ -4,6 +4,8 @@ import { weaponTextureUrl } from './characters/weaponAppearance';
 import { defaultWeapon } from './characters/defaultWeapon';
 import { mountItemWindows } from './ui/itemWindows';
 import type { Forest } from './scenes/Forest';
+import { connectBattle } from './battleClient';
+import { mountBattleOverlay } from './ui/battleOverlay';
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string) {
     const element = document.createElement(tag);
@@ -58,15 +60,30 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
     nameplate.hidden = true;
     shell.append(viewport, nameplate, header, footer, loading);
     app.replaceChildren(shell);
+    const battleOverlay = mountBattleOverlay(shell);
+    let stopBattle: ReturnType<typeof connectBattle> | undefined;
     const game = StartGame(viewport, character, {
         ready: () => {
             if (!shell.isConnected) return;
             loading.remove();
             shell.dataset.ready = 'true';
             toolbar.hidden = false;
+            const scene = game.scene.getScene('Forest') as Forest;
+            stopBattle = connectBattle(character.characterId, () => scene.battleInput(), (state, entering, prediction) => {
+                scene.applyBattle(state, entering, prediction);
+                identity.querySelector('.game-level')!.textContent = `레벨 ${state.character.level ?? 1}`;
+                if (character.weapon?.characterItemId !== state.character.weapon?.characterItemId) renderWeapon(state.character);
+                character = state.character;
+            }, message => {
+                scene.setBattleAvailable(!message);
+                battleOverlay.status(message);
+            });
             viewport.querySelector('canvas')?.setAttribute('aria-label', `${character.nickname}의 이끼숲 탐험. 좌우 방향키로 진행, 위아래 방향키로 앞뒤 이동, Space로 점프, Z로 좌우 공격합니다.`);
         },
         failed: () => { loading.textContent = '숲길을 불러오지 못했어요. 캐릭터 선택으로 돌아가 다시 입장해 주세요.'; },
+        battleView: state => battleOverlay.apply(state),
+        action: () => stopBattle?.wake(),
+        battlePosition: (...args) => battleOverlay.position(...args),
         position: (x, y, screenX, screenY) => {
             shell.dataset.playerX = String(Math.round(x));
             shell.dataset.playerY = String(Math.round(y));
@@ -81,6 +98,8 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
         (game.scene.getScene('Forest') as Forest).setCharacter(current);
     }, blocked => (game.scene.getScene('Forest') as Forest).setUiBlocked(blocked));
     return () => {
+        stopBattle?.();
+        battleOverlay.dispose();
         disposeWindows();
         game.destroy(true);
         document.body.classList.remove('in-game');

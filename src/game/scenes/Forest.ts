@@ -1,22 +1,25 @@
+import { moveMonster, monsterBehavior } from '../monsterMotion';
 import { GameObjects, Input, Scene } from 'phaser';
 import { defaultCharacter, defaultCharacterAtlas } from '../characters/defaultCharacter';
 import { defaultWeapon } from '../characters/defaultWeapon';
+import { inferWeaponGrip, weaponPose, type WeaponGrip } from '../characters/weaponGrip';
 import { characterTextureUrl } from '../characters/characterAppearance';
 import { weaponTextureUrl } from '../characters/weaponAppearance';
 import { registerDefaultCharacterAnimations } from '../characters/registerDefaultCharacter';
 import { buildForest, forestMap, isForestPositionWalkable, type Obstacle } from '../forestMap';
 import type { GameCharacter } from '../types';
+import type { BattleEffect, BattleInput, BattlePrediction, BattleState, BattleStrike } from '../battleTypes';
 
 type Direction = 'east' | 'west';
-type SceneCallbacks = { ready: () => void; failed: () => void; position: (x: number, y: number, screenX: number, screenY: number) => void };
+type SceneCallbacks = { ready: () => void; failed: () => void; position: (x: number, y: number, screenX: number, screenY: number) => void; battlePosition?: (x: number, y: number, scrollX: number, scrollY: number, zoom: number) => void; battleView?: (state: BattleState) => void; action?: () => void };
 
 export class Forest extends Scene {
     private character: GameCharacter;
     private callbacks: SceneCallbacks;
-    private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     private player: GameObjects.Container;
     private sprite: GameObjects.Sprite;
     private weapon?: GameObjects.Image;
+    private weaponGrip: WeaponGrip = { originX: .5, originY: .85, axisAngle: -Math.PI / 2 };
     private shadow: GameObjects.Ellipse;
     private cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     private keys: Record<'SPACE' | 'Z', Input.Keyboard.Key>;
@@ -31,6 +34,30 @@ export class Forest extends Scene {
     private attackFacing: Direction = 'east';
     private uiBlocked = false;
     private weaponRevision = 0;
+    private battleAvailable = false;
+    private outgoingJump = false;
+    private enemy?: GameObjects.Container;
+    private enemyImage?: GameObjects.Image;
+    private enemyShadow?: GameObjects.Ellipse;
+    private enemyHp = 0;
+    private enemyTexture?: string;
+    private enemyLoaded = false;
+    private hurtUntil = 0;
+    private movementX = 0;
+    private movementY = 0;
+    private sentMovementX = 0;
+    private sentMovementY = 0;
+    private correctionX = 0;
+    private correctionY = 0;
+    private enemyCorrectionX = 0;
+    private enemyCorrectionY = 0;
+    private enemyReturning = false;
+    private battleState?: BattleState;
+    private strikeSeq = 0;
+    private strikeResolved = true;
+    private queuedStrikes: BattleStrike[] = [];
+    private pendingHits = new Map<number, { generation: number; damage: number }>();
+    private shownHits = new Set<number>();
 
     constructor(character: GameCharacter, callbacks: SceneCallbacks) {
         super('Forest');
@@ -67,9 +94,7 @@ export class Forest extends Scene {
         const weaponKey = this.textures.exists('player-weapon') ? 'player-weapon'
             : this.character.weapon?.appearanceCode === defaultWeapon.key && this.textures.exists(defaultWeapon.key) ? defaultWeapon.key : null;
         if (weaponKey) {
-            this.weapon = this.add.image(32, -12, weaponKey)
-                .setDisplaySize(defaultWeapon.displaySize, defaultWeapon.displaySize).setOrigin(.5, .85);
-            this.player.add(this.weapon);
+            this.attachWeapon(weaponKey);
         }
         this.cameras.main.roundPixels = true;
         this.resizeCamera();
@@ -84,6 +109,8 @@ export class Forest extends Scene {
             this.callbacks.position(this.player.x, this.player.y,
                 Math.round((this.player.x - camera.worldView.x) * camera.zoom),
                 Math.round((this.player.y + this.sprite.y - 66 - camera.worldView.y) * camera.zoom));
+            this.callbacks.battlePosition?.(this.enemy?.x ?? 800, this.enemy?.y ?? 560,
+                camera.worldView.x, camera.worldView.y, camera.zoom);
         };
         this.game.events.on('postrender', updateOverlay);
         this.scale.on('resize', resizeCamera);
@@ -113,6 +140,7 @@ export class Forest extends Scene {
     private resetInput() {
         this.jumpRequested = false;
         this.attackRequested = false;
+        this.outgoingJump = false;
         this.input.keyboard?.resetKeys();
     }
 
@@ -120,6 +148,158 @@ export class Forest extends Scene {
         this.uiBlocked = blocked;
         this.resetInput();
         if (this.input.keyboard) this.input.keyboard.enabled = !blocked;
+    }
+
+    setBattleAvailable(available: boolean) {
+        if (this.battleAvailable !== available) this.resetInput();
+        this.battleAvailable = available;
+    }
+
+    battleInput(): BattleInput {
+        const paused = this.uiBlocked || !this.battleAvailable || document.hidden;
+        const dead = (this.character.currentHp ?? 1) === 0;
+        const input = {
+            moveX: paused || dead ? 0 : Number(this.cursors.right.isDown) - Number(this.cursors.left.isDown),
+            moveY: paused || dead ? 0 : Number(this.cursors.down.isDown) - Number(this.cursors.up.isDown),
+            attack: false,
+            jump: !paused && !dead && this.outgoingJump, paused,
+            travelX: paused || dead ? 0 : this.movementX - this.sentMovementX,
+            travelY: paused || dead ? 0 : this.movementY - this.sentMovementY,
+            strikes: paused || dead ? [] : this.queuedStrikes.slice(0, 8),
+            prediction: { movementX: this.movementX, movementY: this.movementY, sentAt: performance.now() }
+        };
+        this.sentMovementX = this.movementX;
+        this.sentMovementY = this.movementY;
+        this.outgoingJump = false;
+        return input;
+    }
+
+    applyBattle(state: BattleState, entering: boolean, prediction?: BattlePrediction) {
+        const previousGeneration = this.battleState?.monster.generation;
+        const wasDead = (this.character.currentHp ?? 1) === 0;
+        if (entering) {
+            this.strikeSeq = 0;
+            this.pendingHits.clear(); this.queuedStrikes = []; this.shownHits.clear();
+        }
+        for (const [id, hit] of this.pendingHits) {
+            if (id <= state.lastAttackId || hit.generation !== state.monster.generation) this.pendingHits.delete(id);
+        }
+        this.queuedStrikes = this.queuedStrikes.filter(strike => strike.id > state.lastAttackId && strike.generation === state.monster.generation);
+        const effects = state.effects.filter(effect => effect.attackId == null || !this.shownHits.has(effect.attackId));
+        this.battleState = { ...state, effects: [] };
+        this.setCharacter(state.character);
+        const dead = (state.character.currentHp ?? 1) === 0;
+        if (wasDead && !dead) this.sprite.setAlpha(1).clearTint();
+        if (entering || dead || wasDead !== dead) {
+            this.player.setPosition(state.player.x, state.player.y);
+            this.facing = state.player.facing;
+            this.correctionX = this.correctionY = 0;
+            this.sentMovementX = this.movementX;
+            this.sentMovementY = this.movementY;
+        } else if (prediction) {
+            // Reconcile against the acknowledged input, preserving movement that
+            // happened while the HTTP response was in flight. Never snap on ticks.
+            this.correctionX = state.player.x + this.movementX - prediction.movementX - this.player.x;
+            this.correctionY = state.player.y + this.movementY - prediction.movementY - this.player.y;
+        }
+        if (dead) {
+            this.jumpingUntil = 0; this.resetInput();
+            this.pendingHits.clear(); this.queuedStrikes = []; this.strikeResolved = true;
+        }
+        const receivedAt = performance.now();
+        if (!this.enemy) {
+            this.enemyShadow = this.add.ellipse(state.monster.x, state.monster.y, 56, 16, 0x102118, .35);
+            this.enemy = this.add.container(state.monster.x, state.monster.y);
+            const placeholder = this.add.ellipse(0, -26, 66, 52, 0x698a4c).setStrokeStyle(2, 0xb3c78a);
+            const missing = this.add.text(0, -28, '이미지 없음', { fontSize: '11px', color: '#ffffff' }).setOrigin(.5);
+            this.enemy.add([placeholder, missing]);
+            const key = `monster-${state.monster.definition.monsterId}`;
+            this.enemyTexture = key;
+            this.load.image(key, `/api/monsters/${state.monster.definition.monsterId}/image`);
+            this.load.once('complete', () => {
+                if (!this.sys.isActive() || this.enemyTexture !== key || !this.textures.exists(key)) return;
+                placeholder.destroy(); missing.destroy();
+                this.enemyImage = this.add.image(0, 0, key).setOrigin(.5, 1);
+                this.enemyImage.setScale(Math.min(80 / this.enemyImage.width, 80 / this.enemyImage.height));
+                this.enemy!.add(this.enemyImage);
+            });
+            this.load.start();
+        }
+        if (entering || !this.enemyLoaded || previousGeneration !== state.monster.generation) {
+            this.enemy.setPosition(state.monster.x, state.monster.y);
+            this.enemyCorrectionX = this.enemyCorrectionY = 0;
+            this.enemyReturning = state.monster.returning;
+        } else {
+            if (state.monster.returning) this.enemyReturning = true;
+            else if (Math.hypot(this.enemy.x - monsterBehavior.home.x, (this.enemy.y - monsterBehavior.home.y) / .6) <= 2) this.enemyReturning = false;
+            // Advance continuously between packets; use snapshots only to correct
+            // drift. Account for response transit before setting the correction.
+            const age = prediction ? Math.min(.5, (receivedAt - prediction.sentAt) / 2000) : 0;
+            const projected = moveMonster({ x: state.monster.x, y: state.monster.y, returning: state.monster.returning },
+                state.player.x, state.player.y, age);
+            this.enemyCorrectionX = projected.x - this.enemy.x;
+            this.enemyCorrectionY = projected.y - this.enemy.y;
+        }
+        this.enemyLoaded = true;
+        this.publishBattle(effects);
+        for (const event of effects) {
+            if (event.kind === 'MONSTER_HIT' && this.enemyImage) {
+                this.enemyImage.setTint(0xffb2a2);
+                this.time.delayedCall(140, () => this.enemyImage?.clearTint());
+            }
+            if (event.kind === 'PLAYER_HIT') {
+                this.hurtUntil = this.time.now + 200;
+                this.sprite.setTint(0xff9d8b);
+                this.time.delayedCall(200, () => this.sprite.clearTint());
+                if (this.enemyImage) this.tweens.add({ targets: this.enemyImage,
+                    x: state.player.x > state.monster.x ? 12 : -12, duration: 90, yoyo: true });
+            }
+            if (event.kind === 'REVIVE') { this.sprite.setAlpha(1).clearTint(); this.hurtUntil = 0; }
+        }
+    }
+
+    private publishBattle(effects: BattleEffect[]) {
+        if (!this.battleState) return;
+        const damage = [...this.pendingHits.values()].reduce((sum, hit) =>
+            sum + (hit.generation === this.battleState!.monster.generation ? hit.damage : 0), 0);
+        const hp = Math.max(0, this.battleState.monster.hp - damage);
+        if (this.enemy) {
+            if (this.enemyHp > 0 && hp === 0) this.tweens.add({ targets: this.enemy, alpha: 0, duration: 250 });
+            else if (this.enemyHp === 0 && hp > 0) {
+                this.tweens.killTweensOf(this.enemy);
+                this.enemy.setAlpha(.25);
+                this.tweens.add({ targets: this.enemy, alpha: 1, duration: 250 });
+            }
+        }
+        this.enemyHp = hp;
+        this.enemyShadow?.setVisible(hp > 0);
+        this.callbacks.battleView?.({ ...this.battleState, monster: { ...this.battleState.monster, hp }, effects });
+    }
+
+    private resolveStrike() {
+        if (!this.enemy || !this.battleState || this.enemyHp <= 0) return;
+        const strike: BattleStrike = { id: ++this.strikeSeq, generation: this.battleState.monster.generation,
+            x: this.player.x, y: this.player.y, targetX: this.enemy.x, targetY: this.enemy.y, facing: this.attackFacing };
+        this.queuedStrikes.push(strike);
+        const forward = (strike.targetX - strike.x) * (strike.facing === 'east' ? 1 : -1);
+        if (forward >= -18 && forward <= 110 && Math.abs(strike.targetY - strike.y) <= 38) {
+            const damage = Math.min(this.enemyHp, Math.max(1, (this.character.attack ?? 0) - this.battleState.monster.definition.defense));
+            this.pendingHits.set(strike.id, { generation: strike.generation, damage });
+            this.shownHits.add(strike.id);
+            for (const id of this.shownHits) if (id < strike.id - 256) this.shownHits.delete(id);
+            this.enemyImage?.setTint(0xffb2a2);
+            this.time.delayedCall(140, () => this.enemyImage?.clearTint());
+            this.publishBattle([{ kind: 'MONSTER_HIT', amount: damage, label: '', x: this.enemy.x, y: this.enemy.y, attackId: strike.id }]);
+        }
+        this.callbacks.action?.();
+    }
+
+    private attachWeapon(texture: string) {
+        this.weapon = this.add.image(12, -23, texture);
+        const source = this.textures.get(texture).getSourceImage() as HTMLImageElement;
+        this.weaponGrip = inferWeaponGrip(source, this.weapon.width, this.weapon.height);
+        this.weapon.setScale(defaultWeapon.displaySize / Math.max(this.weapon.width, this.weapon.height));
+        this.player.add(this.weapon);
     }
 
     setCharacter(character: GameCharacter) {
@@ -139,9 +319,7 @@ export class Forest extends Scene {
             const texture = this.textures.exists(key) ? key
                 : character.weapon?.appearanceCode === defaultWeapon.key && this.textures.exists(defaultWeapon.key) ? defaultWeapon.key : null;
             if (!texture) return;
-            this.weapon = this.add.image(32, -12, texture)
-                .setDisplaySize(defaultWeapon.displaySize, defaultWeapon.displaySize).setOrigin(.5, .85);
-            this.player.add(this.weapon);
+            this.attachWeapon(texture);
         };
         if (this.textures.exists(key)) attach();
         else {
@@ -153,13 +331,16 @@ export class Forest extends Scene {
 
     update(time: number, delta: number) {
         if (!this.player || !this.cursors) return;
-        const dx = this.uiBlocked ? 0 : Number(this.cursors.right.isDown) - Number(this.cursors.left.isDown);
-        const dy = this.uiBlocked ? 0 : Number(this.cursors.down.isDown) - Number(this.cursors.up.isDown);
+        const dead = (this.character.currentHp ?? 1) === 0;
+        const blocked = this.uiBlocked || !this.battleAvailable || dead || document.hidden;
+        const dx = blocked ? 0 : Number(this.cursors.right.isDown) - Number(this.cursors.left.isDown);
+        const dy = blocked ? 0 : Number(this.cursors.down.isDown) - Number(this.cursors.up.isDown);
         const distance = Math.hypot(dx, dy);
         // Preserve real-time speed during slow frames; split travel so collisions cannot be skipped.
         // Cap only long stalls (such as returning from a suspended browser).
         const step = Math.min(250, Math.max(0, delta)) / 1000 * 210;
         let moved = false;
+        const beforeX = this.player.x, beforeY = this.player.y;
         if (distance) {
             const substeps = Math.max(1, Math.ceil(step / 4));
             const vx = dx / distance * step / substeps;
@@ -180,12 +361,29 @@ export class Forest extends Scene {
             // Depth movement keeps the last horizontal facing, as in a belt scroller.
             if (dx) this.facing = dx > 0 ? 'east' : 'west';
         }
-        const jumpPressed = this.jumpRequested;
+        this.movementX += this.player.x - beforeX;
+        this.movementY += this.player.y - beforeY;
+        const blendCorrection = 1 - Math.exp(-Math.min(delta, 250) / 160);
+        const correctionX = this.correctionX * blendCorrection;
+        const correctionY = this.correctionY * blendCorrection;
+        this.player.x = Math.max(forestMap.walkArea.left, Math.min(forestMap.walkArea.right, this.player.x + correctionX));
+        this.player.y = Math.max(forestMap.walkArea.top, Math.min(forestMap.walkArea.bottom, this.player.y + correctionY));
+        this.correctionX -= correctionX;
+        this.correctionY -= correctionY;
+        const jumpPressed = !blocked && this.jumpRequested;
         this.jumpRequested = false;
         if (jumpPressed && time >= this.jumpingUntil) {
             this.jumpingUntil = time + 480;
+            this.outgoingJump = true;
         }
-        if (time < this.jumpingUntil) {
+        this.sprite.y = !dead && time < this.jumpingUntil
+            ? -Math.sin((1 - (this.jumpingUntil - time) / 480) * Math.PI) * 52 : 0;
+        if (dead) {
+            this.sprite.stop().setFrame('dead').setAlpha(.6);
+            this.sprite.y = 0;
+        } else if (time < this.hurtUntil) {
+            this.sprite.stop().setFrame('hurt');
+        } else if (time < this.jumpingUntil) {
             const progress = 1 - (this.jumpingUntil - time) / 480;
             this.sprite.stop();
             this.sprite.setFrame(`${this.facing}-${progress < .12 || progress > .9 ? 'crouch' : 'jump'}`);
@@ -202,30 +400,54 @@ export class Forest extends Scene {
         this.shadow.setPosition(this.player.x, this.player.y).setDepth(this.player.y - 1);
         this.shadow.setScale(1 + this.sprite.y / 160);
         this.positionCamera();
+        if (this.enemy) {
+            if (!blocked && this.enemyHp > 0) {
+                const wasReturning = this.enemyReturning;
+                const motion = moveMonster({ x: this.enemy.x, y: this.enemy.y, returning: this.enemyReturning },
+                    this.player.x, this.player.y, Math.min(delta, 250) / 1000);
+                this.enemy.x = motion.x;
+                this.enemy.y = motion.y;
+                this.enemyReturning = motion.returning || (wasReturning && this.battleState?.monster.returning === true);
+                if (wasReturning && !motion.returning) this.enemyCorrectionX = this.enemyCorrectionY = 0;
+                const blend = 1 - Math.exp(-Math.min(delta, 250) / 200);
+                this.enemy.x += this.enemyCorrectionX * blend;
+                this.enemy.y += this.enemyCorrectionY * blend;
+                this.enemyCorrectionX *= 1 - blend;
+                this.enemyCorrectionY *= 1 - blend;
+            }
+            this.enemy.x = Math.max(forestMap.walkArea.left, Math.min(forestMap.walkArea.right, this.enemy.x));
+            this.enemy.y = Math.max(forestMap.walkArea.top, Math.min(forestMap.walkArea.bottom, this.enemy.y));
+            this.enemy.setDepth(this.enemy.y);
+            this.enemyShadow?.setPosition(this.enemy.x, this.enemy.y).setDepth(this.enemy.y - 1);
+        }
         for (const { tree } of this.obstacles) {
             if (!tree) continue;
             const obscuresPlayer = this.player.y < tree.y && this.player.y > tree.y - tree.displayHeight
                 && Math.abs(this.player.x - tree.x) < tree.displayWidth / 2 + 22;
             tree.setAlpha(obscuresPlayer ? .28 : 1);
         }
-        if (this.attackRequested && this.weapon && time >= this.attackReadyAt) {
+        if (!blocked && (this.attackRequested || this.keys.Z.isDown) && time >= this.attackReadyAt) {
+            this.strikeResolved = false;
             this.attackStartedAt = time;
             this.attackReadyAt = time + 400;
             this.attackFacing = this.facing;
         }
         this.attackRequested = false;
+        if (!this.strikeResolved && time - this.attackStartedAt >= 90) {
+            this.strikeResolved = true;
+            if (!blocked) this.resolveStrike();
+        }
         if (this.weapon) {
             const progress = (time - this.attackStartedAt) / 300;
-            if (progress >= 0 && progress < 1) {
-                const facingAngle = this.attackFacing === 'east' ? 0 : Math.PI;
-                const arc = facingAngle - 1.1 + (1 - (1 - progress) ** 2) * 2.2;
-                this.weapon.setPosition(Math.cos(arc) * 35, this.sprite.y - 20 + Math.sin(arc) * 22);
-                this.weapon.setRotation(arc + Math.PI / 2);
-                this.player.bringToTop(this.weapon);
-            } else {
-                this.weapon.setPosition(this.facing === 'east' ? 32 : -32, this.sprite.y - 12 + (this.reducedMotion ? 0 : Math.sin(time / 900) * 3)).setRotation(0);
-                this.player.bringToTop(this.weapon);
-            }
-        }
+            const facing = progress >= 0 && progress < 1 ? this.attackFacing : this.facing;
+            const pose = weaponPose(time, facing, progress, this.sprite.y, moved);
+            const west = facing === 'west';
+            const axis = west ? Math.PI - this.weaponGrip.axisAngle : this.weaponGrip.axisAngle;
+            this.weapon.setVisible(!dead).setFlipX(west)
+                .setOrigin(west ? 1 - this.weaponGrip.originX : this.weaponGrip.originX, this.weaponGrip.originY)
+                .setPosition(pose.x, pose.y).setRotation(pose.angle - axis);
+            this.sprite.x = pose.lean;
+            this.player.bringToTop(this.weapon);
+        } else this.sprite.x = 0;
     }
 }

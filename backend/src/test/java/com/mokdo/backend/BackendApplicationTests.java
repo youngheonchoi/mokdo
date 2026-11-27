@@ -56,6 +56,9 @@ class BackendApplicationTests {
     @MockitoBean
     private JdbcTemplate jdbc;
 
+    @MockitoBean
+    private org.springframework.transaction.PlatformTransactionManager transactions;
+
     private MockMvc mvc;
 
     @BeforeEach
@@ -375,5 +378,23 @@ class BackendApplicationTests {
                 .andExpect(status().isNotFound());
     }
 
+
+    @Test
+    void battleRequiresLoginCsrfAndOwnedCharacter() throws Exception {
+        String path = "/api/characters/" + UUID.randomUUID() + "/battle";
+        mvc.perform(post(path).with(csrf())).andExpect(status().isUnauthorized());
+        mvc.perform(post(path).with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path).with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))).with(csrf()))
+                .andExpect(status().isNotFound());
+        mvc.perform(post(path + "/tick").with(oidcLogin().oidcUser(memberUser(UUID.randomUUID())))
+                .contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path + "/tick").with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))).with(csrf())
+                .contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/monsters/" + UUID.randomUUID() + "/image"))
+                .andExpect(status().isUnauthorized());
+    }
 
 }

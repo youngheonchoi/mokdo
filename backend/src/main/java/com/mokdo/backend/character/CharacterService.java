@@ -25,7 +25,7 @@ public class CharacterService {
     public List<CharacterResponse> list(UUID memberId) {
         return jdbc.query("""
                 SELECT g.character_id, slot_no, nickname, equipped_costume_id, c.appearance_code,
-                       g.level, g.exp, l.max_hp::bigint + bonus.hp AS max_hp,
+                       g.level, g.exp, g.currency, LEAST(COALESCE(g.current_hp, l.max_hp::bigint + bonus.hp), l.max_hp::bigint + bonus.hp) AS current_hp, l.max_hp::bigint + bonus.hp AS max_hp,
                        l.attack::bigint + bonus.attack AS attack, l.defense::bigint + bonus.defense AS defense, l.required_exp,
                        e.character_item_id AS weapon_character_item_id, i.item_id AS weapon_item_id,
                        i.item_code AS weapon_item_code, i.name AS weapon_name, i.appearance_code AS weapon_appearance_code,
@@ -54,7 +54,7 @@ public class CharacterService {
                         rs.getString("weapon_item_code"), rs.getString("weapon_name"), rs.getString("weapon_appearance_code"),
                         rs.getInt("weapon_attack"), rs.getInt("weapon_defense"), rs.getInt("weapon_hp")),
                 rs.getInt("level"), rs.getLong("exp"), rs.getLong("max_hp"), rs.getLong("attack"), rs.getLong("defense"),
-                rs.getObject("required_exp", Long.class)), memberId);
+                rs.getObject("required_exp", Long.class), rs.getLong("current_hp"), rs.getLong("currency")), memberId);
     }
 
     public List<CostumeResponse> ownedCostumes(UUID memberId) {
@@ -136,7 +136,7 @@ public class CharacterService {
         return new CharacterResponse(characterId, slotNo, normalized, defaultCostumeId, defaultCostume.appearanceCode(), weapon,
                 1, 0, (long) stats.maxHp() + (weapon == null ? 0 : weapon.hp()),
                 (long) stats.attack() + (weapon == null ? 0 : weapon.attack()),
-                (long) stats.defense() + (weapon == null ? 0 : weapon.defense()), stats.requiredExp());
+                (long) stats.defense() + (weapon == null ? 0 : weapon.defense()), stats.requiredExp(), (long) stats.maxHp() + (weapon == null ? 0 : weapon.hp()), 0);
     }
 
     @Transactional
@@ -169,7 +169,7 @@ public class CharacterService {
 
     public record CharacterResponse(UUID characterId, int slotNo, String nickname,
             UUID equippedCostumeId, String appearanceCode, WeaponResponse weapon,
-            int level, long exp, long maxHp, long attack, long defense, Long requiredExp) { }
+            int level, long exp, long maxHp, long attack, long defense, Long requiredExp, long currentHp, long currency) { }
     public record LevelStats(int maxHp, int attack, int defense, Long requiredExp) { }
     public record CostumeResponse(UUID costumeId, String name, String appearanceCode) { }
 }

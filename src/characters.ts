@@ -3,6 +3,7 @@ import { defaultCharacter } from './game/characters/defaultCharacter';
 import { defaultWeapon } from './game/characters/defaultWeapon';
 import { characterTextureUrl } from './game/characters/characterAppearance';
 import { weaponTextureUrl } from './game/characters/weaponAppearance';
+import { inferWeaponGrip, weaponPose } from './game/characters/weaponGrip';
 import type { GameCharacter } from './game/types';
 
 type Character = GameCharacter;
@@ -88,8 +89,8 @@ function showSelection(panel: HTMLElement, characters: Character[], notice?: str
         const card = element('button', `character-slot ${character ? 'occupied' : 'empty'}`);
         const emblem = element('span', character ? 'character-portrait' : 'slot-plus', character ? undefined : '+');
         if (character) {
-            const frame = defaultCharacter.frames['south-idle'];
-            const walk = defaultCharacter.animations['walk-south'];
+            const frame = defaultCharacter.frames['east-idle'];
+            const walk = defaultCharacter.animations['walk-east'];
             const position = (name: typeof walk.frames[number]) => {
                 const rect = defaultCharacter.frames[name];
                 return `${rect.x / (defaultCharacter.sheetWidth - rect.w) * 100}% ${rect.y / (defaultCharacter.sheetHeight - rect.h) * 100}%`;
@@ -104,7 +105,7 @@ function showSelection(panel: HTMLElement, characters: Character[], notice?: str
                 texture.src = textureUrl;
             }
             emblem.style.backgroundSize = `${defaultCharacter.sheetWidth / frame.w * 100}% ${defaultCharacter.sheetHeight / frame.h * 100}%`;
-            emblem.style.backgroundPosition = position('south-idle');
+            emblem.style.backgroundPosition = position('east-idle');
             walk.frames.forEach((name, index) => emblem.style.setProperty(`--walk-frame-${index}`, position(name)));
             emblem.style.setProperty('--walk-duration', `${walk.frames.length / walk.frameRate}s`);
             const weaponUrl = weaponTextureUrl(character.weapon?.appearanceCode, character.weapon?.itemId);
@@ -116,6 +117,18 @@ function showSelection(panel: HTMLElement, characters: Character[], notice?: str
                     weapon.onerror = null;
                     if (character.weapon?.appearanceCode === defaultWeapon.key) weapon.src = defaultWeapon.textureUrl;
                     else weapon.remove();
+                };
+                weapon.onload = () => {
+                    const grip = inferWeaponGrip(weapon, weapon.naturalWidth, weapon.naturalHeight);
+                    const pose = weaponPose(0, 'east', -1, 0, false);
+                    const extent = Math.max(weapon.naturalWidth, weapon.naturalHeight);
+                    // Match the game's 96px character and 64px weapon at any portrait size.
+                    weapon.style.width = `${64 / 96 * weapon.naturalWidth / extent * 100}%`;
+                    weapon.style.left = `${50 + pose.x / 96 * 100}%`;
+                    weapon.style.top = `${87.5 + pose.y / 96 * 100}%`;
+                    weapon.style.transformOrigin = `${grip.originX * 100}% ${grip.originY * 100}%`;
+                    weapon.style.transform = `translate(${-grip.originX * 100}%, ${-grip.originY * 100}%) rotate(${pose.angle - grip.axisAngle}rad)`;
+                    weapon.style.visibility = 'visible';
                 };
                 weapon.src = weaponUrl;
                 emblem.append(weapon);

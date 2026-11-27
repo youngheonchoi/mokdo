@@ -120,11 +120,7 @@ body.authenticated { color: #f5f2df; }
 .slot-number { font-size: 11px; letter-spacing: .12em; color: #b5c4a7; }
 .slot-plus { display: grid; place-items: center; height: 72px; width: 72px; font-size: 40px; font-weight: 300; color: #e9c87a; }
 .character-portrait { position: relative; display: block; flex-shrink: 0; width: 112px; max-width: 100%; aspect-ratio: 1; background-repeat: no-repeat; image-rendering: pixelated; animation: character-walk var(--walk-duration, .5s) steps(1, end) infinite; }
-.character-weapon { position: absolute; top: 40%; right: -8px; width: 64px; height: 64px; image-rendering: pixelated; pointer-events: none; transform-origin: 50% 88%; animation: weapon-float 1.8s ease-in-out infinite; }
-@keyframes weapon-float {
-    0%, 100% { transform: translateY(2px); }
-    50% { transform: translateY(-4px); }
-}
+.character-weapon { position: absolute; height: auto; image-rendering: pixelated; pointer-events: none; visibility: hidden; }
 @keyframes character-walk {
     0%, 100% { background-position: var(--walk-frame-0); }
     25% { background-position: var(--walk-frame-1); }
@@ -161,7 +157,6 @@ body.authenticated { color: #f5f2df; }
     .slot-level { font-size: 11px; }
     .slot-plus { width: 52px; height: 52px; font-size: 30px; }
     .character-portrait { width: 80px; }
-    .character-weapon { right: -8px; width: 48px; height: 48px; }
     .screen-description { font-size: 14px; }
     .secondary-button { padding: 12px; }
 }
@@ -267,4 +262,33 @@ body.in-game #app { display: block; height: 100dvh; min-height: 0; }
     .game-tool { min-height: 44px; padding: 8px 16px; }
     .game-footer { right: 14px; flex-direction: row; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; }
     .game-help { order: 3; flex-basis: 100%; }
+}
+
+.battle-hud { position: absolute; z-index: 2; left: 24px; top: 112px; display: grid; grid-template-columns: 1fr; gap: 6px; width: 218px; box-sizing: border-box; padding: 12px 14px; border: 1px solid #8b815b80; border-radius: 4px; color: #e8dfbf; background: #1b281eeb; font-size: 12px; pointer-events: none; }
+.battle-hud progress, .monster-label progress { display: block; appearance: none; width: 100%; height: 7px; overflow: hidden; border: 0; border-radius: 2px; background: #101a13; }
+.battle-hud progress::-webkit-progress-bar, .monster-label progress::-webkit-progress-bar { background: #101a13; }
+.battle-hp::-webkit-progress-value { background: #ba594c; }
+.battle-exp::-webkit-progress-value { background: #baaa60; }
+.battle-hp::-moz-progress-bar { background: #ba594c; }
+.battle-exp::-moz-progress-bar { background: #baaa60; }
+.battle-currency { margin-top: 4px; color: #e5c374; font-weight: 500; }
+.battle-message { margin: 0; line-height: 1.6; color: #d3c8a6; overflow-wrap: anywhere; }
+.battle-message:empty { display: none; }
+.connection-error .battle-message, .battle-hud[data-dead='true'] .battle-message { color: #ffb9a4; }
+.monster-label { position: absolute; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; width: 144px; transform: translate(-50%, -100%); color: #f9e9ce; font-size: 11px; text-shadow: 0 1px 3px #000; pointer-events: none; }
+.monster-label[hidden] { display: none; }
+.monster-label strong { font-size: 13px; padding: 3px 7px; border-radius: 3px; background: #17241dd9; }
+.monster-label progress { width: 88px; height: 6px; }
+.monster-label progress::-webkit-progress-value { background: #c36959; }
+.monster-label progress::-moz-progress-bar { background: #c36959; }
+.battle-floats { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+.battle-float { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font-size: 17px; font-weight: 700; text-shadow: 0 2px 2px #0d1810, 1px 0 2px #0d1810, -1px 0 2px #0d1810; color: #fff0c4; }
+.battle-float-exp { color: #b9efb3; }
+.battle-float-currency { color: #ffda79; }
+.battle-float-item { color: #b5dcff; font-size: 14px; }
+.battle-float-player_hit, .battle-float-player_died { color: #ff9a86; }
+.battle-float-level_up { color: #ffdf85; font-size: 24px; }
+@media (max-width: 700px), (pointer: coarse) {
+    .battle-hud { left: 14px; top: 90px; width: 160px; padding: 9px 10px; font-size: 11px; }
+    .battle-float { font-size: 14px; }
 }

@@ -75,7 +75,7 @@ class CharacterServiceTests {
     void rejectsOccupiedSlot() {
         stubMember("ACT");
         when(jdbc.query(contains("SELECT g.character_id"), any(RowMapper.class), eq(memberId)))
-                .thenReturn(List.of(new CharacterService.CharacterResponse(UUID.randomUUID(), 2, "기존캐릭터", defaultCostumeId, "common-character-01", null, 1, 0, 100, 10, 2, null)));
+                .thenReturn(List.of(new CharacterService.CharacterResponse(UUID.randomUUID(), 2, "기존캐릭터", defaultCostumeId, "common-character-01", null, 1, 0, 100, 10, 2, null, 100, 0)));
         var exception = assertThrows(ResponseStatusException.class, () -> characters.create(memberId, 2, "새캐릭터"));
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
         verify(jdbc, never()).update(anyString(), any(Object[].class));
