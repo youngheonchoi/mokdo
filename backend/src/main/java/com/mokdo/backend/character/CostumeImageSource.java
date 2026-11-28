@@ -25,7 +25,7 @@ public class CostumeImageSource {
     }
 
     public byte[] fetch(String key) {
-        if (baseUrl.isBlank() || key == null || !key.matches("(?:costumes|items|monsters)/[a-f0-9-]{36}/[a-f0-9-]{36}\\.png")) {
+        if (baseUrl.isBlank() || key == null || !key.matches("(?:costumes|items|monsters|npcs)/[a-f0-9-]{36}/[a-f0-9-]{36}\\.png")) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
         var request = HttpRequest.newBuilder(URI.create(baseUrl + "/" + key)).timeout(Duration.ofSeconds(15)).GET().build();

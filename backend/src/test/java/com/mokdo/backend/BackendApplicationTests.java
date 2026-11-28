@@ -397,4 +397,33 @@ class BackendApplicationTests {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void npcReadAndPurchaseRoutesRequireLoginAndCsrf() throws Exception {
+        UUID member = UUID.randomUUID(), character = UUID.randomUUID(), npc = UUID.randomUUID(), offer = UUID.randomUUID();
+        String path = "/api/characters/" + character + "/npcs/" + npc + "/purchases";
+        String body = "{\"shopItemId\":\"" + offer + "\",\"quantity\":1,\"unitPrice\":\"30\"}";
+        for (String read : new String[]{"/api/npcs", "/api/npcs/" + npc + "/shop", "/api/npcs/" + npc + "/image"}) {
+            mvc.perform(get(read)).andExpect(status().isUnauthorized());
+        }
+        mvc.perform(post(path).with(csrf()).contentType("application/json").content(body))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post(path).with(oidcLogin().oidcUser(memberUser(member))).contentType("application/json").content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path).with(oidcLogin().oidcUser(memberUser(member))).with(csrf()).contentType("application/json").content(body))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.message").value("캐릭터를 찾을 수 없어요."));
+        verify(jdbc, never()).update(anyString(), any(Object[].class));
+    }
+
+    @Test
+    void validatesPurchaseBodyBeforeWritingAnyData() throws Exception {
+        UUID member = UUID.randomUUID();
+        String path = "/api/characters/" + UUID.randomUUID() + "/npcs/" + UUID.randomUUID() + "/purchases";
+        for (String body : new String[]{"{}", "{\"shopItemId\":\"" + UUID.randomUUID() + "\",\"quantity\":100,\"unitPrice\":\"30\"}",
+                "{\"shopItemId\":\"" + UUID.randomUUID() + "\",\"quantity\":1,\"unitPrice\":\"-1\"}"}) {
+            mvc.perform(post(path).with(oidcLogin().oidcUser(memberUser(member))).with(csrf()).contentType("application/json").content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        verify(jdbc, never()).update(anyString(), any(Object[].class));
+    }
+
 }

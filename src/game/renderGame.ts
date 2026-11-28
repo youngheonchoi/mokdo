@@ -3,6 +3,7 @@ import StartGame from './main';
 import type { GameCharacter } from './types';
 import { weaponTextureUrl } from './characters/weaponAppearance';
 import { defaultWeapon } from './characters/defaultWeapon';
+import { mountNpcShops } from './ui/npcShops';
 import { mountItemWindows } from './ui/itemWindows';
 import type { Forest } from './scenes/Forest';
 import { connectBattle } from './battleClient';
@@ -66,6 +67,13 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
     app.replaceChildren(shell);
     const battleOverlay = mountBattleOverlay(shell);
     let stopBattle: ReturnType<typeof connectBattle> | undefined;
+    let npcShops: ReturnType<typeof mountNpcShops> | undefined;
+    let itemWindows: ReturnType<typeof mountItemWindows> | undefined;
+    const inputBlocks = new Set<string>();
+    const setBlocked = (source: string, blocked: boolean) => {
+        if (blocked) inputBlocks.add(source); else inputBlocks.delete(source);
+        (game.scene.getScene('Forest') as Forest | undefined)?.setUiBlocked(inputBlocks.size > 0);
+    };
     const game = StartGame(viewport, character, {
         ready: () => {
             if (!shell.isConnected) return;
@@ -78,16 +86,26 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
                 identity.querySelector('.game-level')!.textContent = `레벨 ${state.character.level ?? 1}`;
                 if (character.weapon?.characterItemId !== state.character.weapon?.characterItemId) renderWeapon(state.character);
                 character = state.character;
+                itemWindows?.updateCharacter(character);
+                npcShops?.updateCharacter(character);
+                if (state.effects.some(effect => effect.kind === 'ITEM')) void itemWindows?.refresh();
             }, message => {
                 scene.setBattleAvailable(!message);
                 battleOverlay.status(message);
+            });
+            npcShops = mountNpcShops(shell, character, async () => { await itemWindows?.refresh(); }, blocked => {
+                setBlocked('shop', blocked);
+                itemWindows?.setExternalBlocked(blocked);
             });
             viewport.querySelector('canvas')?.setAttribute('aria-label', `${character.nickname}의 이끼숲 탐험. 좌우 방향키로 진행, 위아래 방향키로 앞뒤 이동, Space로 점프, Z로 좌우 공격합니다.`);
         },
         failed: () => { loading.textContent = '숲길을 불러오지 못했어요. 캐릭터 선택으로 돌아가 다시 입장해 주세요.'; },
         battleView: state => battleOverlay.apply(state),
         action: () => stopBattle?.wake(),
-        battlePosition: (...args) => battleOverlay.position(...args),
+        battlePosition: (...args) => {
+            battleOverlay.position(...args);
+            npcShops?.position(args[2], args[3], args[4]);
+        },
         position: (x, y, screenX, screenY) => {
             shell.dataset.playerX = String(Math.round(x));
             shell.dataset.playerY = String(Math.round(y));
@@ -96,16 +114,19 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
             nameplate.style.top = `${screenY}px`;
         }
     });
-    const disposeWindows = mountItemWindows(shell, toolbar, character, current => {
+    itemWindows = mountItemWindows(shell, toolbar, character, current => {
+        character = current;
+        npcShops?.updateCharacter(current);
         renderWeapon(current);
         identity.querySelector('.game-level')!.textContent = `레벨 ${current.level ?? 1}`;
-        (game.scene.getScene('Forest') as Forest).setCharacter(current);
-    }, blocked => (game.scene.getScene('Forest') as Forest).setUiBlocked(blocked));
+        (game.scene.getScene('Forest') as Forest | undefined)?.setCharacter(current);
+    }, blocked => setBlocked('items', blocked));
     return () => {
         disposeFullscreen();
         stopBattle?.();
         battleOverlay.dispose();
-        disposeWindows();
+        npcShops?.dispose();
+        itemWindows?.();
         game.destroy(true);
         document.body.classList.remove('in-game');
     };

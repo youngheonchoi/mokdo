@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CostumeImageSourceTests {
-    @Test void loadsMonsterPngUsingThePublicBucketPath() throws Exception {
+    @Test void loadsSupportedAssetPngsIncludingNpcsUsingThePublicBucketPath() throws Exception {
         var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         var requested=new AtomicReference<String>();
         byte[] png={(byte)137,80,78,71,13,10,26,10,0};
@@ -20,10 +20,12 @@ class CostumeImageSourceTests {
         });
         server.start();
         try {
-            String key="monsters/"+UUID.randomUUID()+"/"+UUID.randomUUID()+".png";
             var source=new CostumeImageSource("http://127.0.0.1:"+server.getAddress().getPort()+"/mokdo-dev-assets/");
-            assertArrayEquals(png,source.fetch(key));
-            assertEquals("/mokdo-dev-assets/"+key,requested.get());
+            for (String prefix : new String[]{"monsters", "costumes", "items", "npcs"}) {
+                String key = prefix + "/" + UUID.randomUUID() + "/" + UUID.randomUUID() + ".png";
+                assertArrayEquals(png, source.fetch(key));
+                assertEquals("/mokdo-dev-assets/" + key, requested.get());
+            }
         } finally {server.stop(0);}
     }
 }

@@ -1,3 +1,4 @@
+import { mountQuickSlots } from './quickSlots';
 import { request } from '../../api/request';
 import { defaultWeapon } from '../characters/defaultWeapon';
 import type { GameCharacter, InventoryItem } from '../types';
@@ -31,6 +32,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     let selectedSource: 'inventory' | 'equipment' = 'inventory';
     let busy = false;
     let loading = false;
+    let refreshPromise: Promise<void> | undefined;
     let loaded = false;
     let stale = false;
     let disposed = false;
@@ -38,6 +40,11 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     let error = false;
     let top = 4;
     const abort = new AbortController();
+    let externallyBlocked = false;
+    const quickSlots = mountQuickSlots(shell, initial.characterId, binding => {
+        const item = items.find(item => item.itemId === binding.itemId && item.itemType === 'CONSUMABLE' && item.quantity > 0);
+        if (item) void consume(item);
+    });
     const windows: { panel: HTMLElement; body: HTMLElement; trigger: HTMLButtonElement }[] = [];
     const tooltip = el('div', 'item-tooltip');
     tooltip.id = 'game-item-tooltip';
@@ -57,7 +64,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     const focusWindow = (panel: HTMLElement) => { panel.style.zIndex = String(++top); };
     const clamp = (panel: HTMLElement) => {
         panel.style.left = `${Math.max(8, Math.min(parseFloat(panel.style.left) || 8, shell.clientWidth - panel.offsetWidth - 8))}px`;
-        panel.style.top = `${Math.max(8, Math.min(parseFloat(panel.style.top) || 8, shell.clientHeight - panel.offsetHeight - 8))}px`;
+        panel.style.top = `${Math.max(8, Math.min(parseFloat(panel.style.top) || 8, shell.clientHeight - panel.offsetHeight - 174))}px`;
     };
     function createWindow(title: string, index: number) {
         const trigger = el('button', 'game-tool', title);
@@ -176,7 +183,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     }
 
     function clearDropTargets() {
-        equipment.querySelectorAll('.drop-valid, .drop-invalid').forEach(slot => slot.classList.remove('drop-valid', 'drop-invalid'));
+        shell.querySelectorAll('.drop-valid, .drop-invalid').forEach(slot => slot.classList.remove('drop-valid', 'drop-invalid'));
     }
     function cancelDrag() {
         const previous = dragging;
@@ -186,7 +193,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
         ghost = undefined;
         clearDropTargets();
     }
-    const dropTarget = (x: number, y: number) => document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-equipment-type]');
+    const dropTarget = (x: number, y: number) => document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-equipment-type], [data-quickslot]');
     window.addEventListener('pointermove', event => {
         if (!dragging || event.pointerId !== dragging.pointer) return;
         if (!dragging.active && Math.hypot(event.clientX - dragging.x, event.clientY - dragging.y) < 6) return;
@@ -203,7 +210,10 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
         ghost!.style.top = `${event.clientY - root.top - 24}px`;
         clearDropTargets();
         const target = dropTarget(event.clientX, event.clientY);
-        if (target) target.classList.add(equipProblem(dragging.item, target.dataset.equipmentType) ? 'drop-invalid' : 'drop-valid');
+        if (target) {
+            const invalid = target.dataset.quickslot !== undefined ? dragging.item.itemType !== 'CONSUMABLE' : !!equipProblem(dragging.item, target.dataset.equipmentType);
+            target.classList.add(invalid ? 'drop-invalid' : 'drop-valid');
+        }
     }, { signal: abort.signal, passive: false });
     window.addEventListener('pointerup', event => {
         if (!dragging || event.pointerId !== dragging.pointer) return;
@@ -212,6 +222,10 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
         if (active) suppressClickUntil = performance.now() + 300;
         cancelDrag();
         if (!target) return;
+        if (target.dataset.quickslot !== undefined) {
+            quickSlots.assign(Number(target.dataset.quickslot), item);
+            return;
+        }
         const problem = equipProblem(item, target.dataset.equipmentType);
         if (problem) { message = problem; error = true; render(); }
         else void equip(item, false);
@@ -220,7 +234,19 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     window.addEventListener('blur', () => { hideTooltip(); cancelDrag(); }, { signal: abort.signal });
     shell.addEventListener('scroll', hideTooltip, { signal: abort.signal, capture: true });
 
-    async function refresh() {
+    function refresh(): Promise<void> {
+        if (disposed) return Promise.resolve();
+        refreshPromise ??= readInventory().finally(() => { refreshPromise = undefined; });
+        return refreshPromise;
+    }
+
+    async function refreshAfterMutation() {
+        await refreshPromise;
+        await refresh();
+    }
+
+    async function readInventory() {
+        if (disposed) return;
         loading = true;
         error = false;
         message = '';
@@ -243,6 +269,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
             stale = true;
             message = cause instanceof Error ? cause.message : '아이템을 불러오지 못했어요. 다시 시도해 주세요.';
             error = true;
+            quickSlots.announce(message, true);
         } finally {
             loading = false;
             if (!disposed) render();
@@ -250,7 +277,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     }
 
     async function equip(item: InventoryItem, unequip = item.equipped) {
-        if (busy || loading || stale || (!unequip && (item.equipped || equipProblem(item)))) return;
+        if (busy || loading || stale || externallyBlocked || (!unequip && (item.equipped || equipProblem(item)))) return;
         busy = true;
         message = '장비를 변경하고 있어요…';
         error = false;
@@ -263,12 +290,12 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
                 headers: { 'Content-Type': 'application/json', [csrf.headerName]: csrf.token },
                 body: JSON.stringify({ characterItemId: unequip ? null : item.characterItemId })
             });
-            await refresh();
+            await refreshAfterMutation();
             if (!stale) { message = `${item.name}${unequip ? ' 장착을 해제했어요.' : ' 장착했어요.'}`; error = false; }
         } catch (cause) {
             if (disposed) return;
             // Re-read after a rejected or interrupted change before allowing another mutation.
-            await refresh();
+            await refreshAfterMutation();
             message = cause instanceof Error ? cause.message : '장비 변경에 실패했어요. 다시 시도해 주세요.';
             error = true;
         } finally {
@@ -278,9 +305,10 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     }
 
     async function consume(item: InventoryItem) {
-        if (busy || loading || stale || item.healHp <= 0) return;
+        if (busy || loading || stale || externallyBlocked || item.healHp <= 0) return;
         busy = true;
         message = '아이템을 사용하고 있어요…';
+        quickSlots.announce(message);
         error = false;
         render();
         try {
@@ -290,16 +318,16 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
                 method: 'POST', signal: abort.signal,
                 headers: { [csrf.headerName]: csrf.token }
             });
-            await refresh();
+            await refreshAfterMutation();
             if (!stale) { message = `${item.name}을 사용해 HP ${result.healedHp} 회복했어요.`; error = false; }
         } catch (cause) {
             if (disposed) return;
-            await refresh();
+            await refreshAfterMutation();
             message = cause instanceof Error ? cause.message : '아이템을 사용하지 못했어요. 다시 시도해 주세요.';
             error = true;
         } finally {
             busy = false;
-            if (!disposed) render();
+            if (!disposed) { render(); quickSlots.announce(message, error); }
         }
     }
 
@@ -316,6 +344,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     function render() {
         hideTooltip();
         cancelDrag();
+        quickSlots.update(items, !loaded || busy || loading || stale);
         inventory.replaceChildren();
         equipment.replaceChildren();
         for (const body of [inventory, equipment]) {
@@ -348,7 +377,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
                 selectedSource = 'inventory';
                 render();
             };
-            if (['WEAPON', 'HAT'].includes(item.itemType)) {
+            if (['WEAPON', 'HAT', 'CONSUMABLE'].includes(item.itemType)) {
                 cell.classList.add('draggable-item');
                 cell.onpointerdown = event => {
                     if (event.button !== 0 || busy || loading || stale) return;
@@ -367,7 +396,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
         }
         inventory.append(grid);
         if (!items.length) inventory.append(el('p', 'item-empty', '보유한 아이템이 없어요.'));
-        inventory.append(el('p', 'item-caption slot-help', '장비창의 무기·모자 칸으로 드래그하면 장착할 수 있어요.'));
+        inventory.append(el('p', 'item-caption slot-help', '장비는 장비창으로, 소비 아이템은 하단 퀵슬롯으로 끌어 놓으세요.'));
         equipment.append(el('p', 'item-caption', `${character.nickname} · 레벨 ${character.level ?? 1}`));
         const stats = el('dl', 'equipment-stats');
         for (const [label, value] of [['최대 체력', character.maxHp], ['공격력', character.attack], ['방어력', character.defense]] as const) {
@@ -419,13 +448,20 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
         windows.forEach(({ panel }) => { if (!panel.hidden) clamp(panel); });
     }
     render();
-    return () => {
+    void refresh();
+    const dispose = () => {
         hideTooltip();
         cancelDrag();
         tooltip.remove();
+        quickSlots.dispose();
         disposed = true;
         abort.abort();
         resize.disconnect();
         windows.forEach(({ panel, trigger }) => { panel.remove(); trigger.remove(); });
     };
+    return Object.assign(dispose, {
+        refresh: refreshAfterMutation,
+        updateCharacter(next: GameCharacter) { character = next; },
+        setExternalBlocked(blocked: boolean) { externallyBlocked = blocked; quickSlots.setBlocked(blocked); }
+    });
 }

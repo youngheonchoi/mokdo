@@ -294,3 +294,75 @@ body.in-game #app { display: block; height: 100dvh; min-height: 0; }
     .battle-hud { left: 14px; top: 90px; width: 160px; padding: 9px 10px; font-size: 11px; }
     .battle-float { font-size: 14px; }
 }
+
+/* Two rows of four action slots, kept clear of the bag and equipment windows. */
+.quickslots { position: absolute; z-index: 3; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: 264px; color: #e8dfbf; }
+.quickslot-grid { display: grid; grid-template-columns: repeat(4, 56px); gap: 6px; justify-content: center; padding: 8px; border: 1px solid #a29364; border-radius: 6px; background: #1b281ef2; box-shadow: 0 5px 20px #08140d80; }
+.quickslot { position: relative; width: 56px; height: 56px; padding: 10px; border: 1px solid #817953; border-radius: 4px; background: #111d16; color: #e8dfbf; cursor: pointer; touch-action: none; }
+.quickslot:hover, .quickslot:focus-visible { border-color: #e6cf8c; outline: 2px solid #d3bc7580; outline-offset: 1px; }
+.quickslot img { width: 32px; height: 32px; object-fit: contain; image-rendering: pixelated; pointer-events: none; }
+.quickslot kbd { position: absolute; left: 4px; top: 2px; font-family: inherit; font-size: 11px; font-weight: 700; line-height: 1.2; color: #d9c68d; pointer-events: none; }
+.quickslot-quantity { position: absolute; right: 4px; bottom: 1px; font-size: 12px; font-weight: 700; text-shadow: 0 1px 3px #000; }
+.quickslot.depleted img { opacity: .3; }
+.quickslot[aria-disabled='true'] { color: #a8ae9b; }
+.quickslot.drop-valid { outline: 3px solid #91c592; background: #314b33; }
+.quickslot.drop-invalid { outline: 3px solid #d48d7c; background: #4e2d2b; }
+.quickslot-hint, .quickslot-status { margin: 5px 0 0; font-size: 11px; line-height: 1.4; text-align: center; text-shadow: 0 1px 3px #000, 0 1px 5px #000; }
+.quickslot-status:empty { display: none; }
+.quickslot-status.error { color: #ffc1a8; }
+.item-window { max-height: calc(100% - 190px); }
+.game-help { position: absolute; bottom: 0; left: 180px; max-width: 180px; }
+.npc-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+.npc-actor { position: absolute; display: flex; flex-direction: column; align-items: center; width: 140px; padding: 0; border: 0; background: none; color: #f3dfaa; transform-origin: bottom center; cursor: pointer; pointer-events: auto; }
+.npc-actor[hidden], .npc-image[hidden], .npc-placeholder[hidden], .shop-backdrop[hidden], .npc-notice button[hidden] { display: none; }
+.npc-actor::after { content: ''; position: absolute; width: 42px; height: 12px; bottom: -3px; border-radius: 50%; background: #12251b80; z-index: -1; }
+.npc-name { white-space: nowrap; font-size: 14px; font-weight: 700; text-shadow: 0 2px 3px #0a180e; }
+.npc-action { font-size: 11px; margin: 1px 0 5px; padding: 1px 8px; border: 1px solid #ac9467; border-radius: 3px; color: #fff0c4; background: #25372ee6; }
+.npc-image { width: 96px; height: 96px; object-fit: contain; object-position: center bottom; image-rendering: pixelated; }
+.npc-placeholder { display: grid; place-items: center; width: 52px; height: 76px; border: 2px solid #c0b07e; border-radius: 18px 18px 8px 8px; background: #45543c; font-size: 14px; }
+.npc-actor:hover .npc-action, .npc-actor:focus-visible .npc-action { background: #6b5d34; }
+.npc-actor:focus-visible { outline: 2px solid #e6cf8c; border-radius: 6px; }
+.npc-notice { position: absolute; right: 24px; top: 112px; z-index: 3; max-width: 260px; color: #ffe2b5; font-size: 12px; }
+.npc-notice p:empty { display: none; }
+.shop-backdrop { position: absolute; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 12px; background: #08140d8c; }
+.npc-shop.item-window { position: relative; width: 680px; max-width: 100%; max-height: 90%; color: #e8dfbf; }
+.npc-shop .item-window-header { cursor: default; }
+.npc-shop .item-close { margin-left: auto; }
+.shop-dialogue { white-space: pre-wrap; margin-top: 0; line-height: 1.5; }
+.shop-balance { color: #ead092; font-weight: 700; }
+.shop-list { display: grid; gap: 12px; }
+.shop-item { display: grid; grid-template-columns: 40px 1fr 135px; gap: 12px; padding: 12px; border: 1px solid #7f795766; border-radius: 4px; background: #142319; }
+.shop-item h3 { margin: 0 0 6px; font-size: 14px; }
+.shop-item-info { min-width: 0; overflow-wrap: anywhere; }
+.shop-item .item-caption { white-space: pre-wrap; }
+.shop-price, .shop-total { margin: 5px 0; font-size: 12px; color: #ead092; overflow-wrap: anywhere; }
+.shop-quantity { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.shop-quantity input { width: 64px; min-height: 32px; padding: 4px 8px; border: 1px solid #8b815b; border-radius: 3px; color: #fff3cc; background: #0d1a12; }
+.shop-item-actions .item-action { width: 100%; min-height: 36px; margin-top: 4px; }
+@media (max-width: 760px) {
+    .game-help { display: none; }
+    .game-footer { bottom: max(18px, env(safe-area-inset-bottom)); }
+    .game-equipped { max-width: 120px; }
+    .game-toolbar { flex-direction: column; }
+    .quickslots { width: 238px; }
+    .quickslot-grid { grid-template-columns: repeat(4, 48px); gap: 5px; padding: 6px; }
+    .quickslot { width: 48px; height: 48px; padding: 7px; }
+    .quickslot-hint { display: none; }
+    .npc-shop.item-window { max-height: 96%; }
+    .shop-item { grid-template-columns: 32px 1fr; }
+    .shop-item-actions { grid-column: 2; }
+    .shop-quantity input { min-height: 40px; }
+}
+@media (max-width: 480px) {
+    .game-footer { bottom: 154px; align-items: flex-end; }
+    .game-equipped { display: none; }
+    .game-toolbar { margin-left: auto; flex-direction: row; }
+    .npc-notice { right: 14px; top: 90px; max-width: 170px; }
+}
+.shop-item > .item-icon { grid-column: 1; grid-row: 1; width: 40px; height: 40px; }
+.shop-item-info { grid-column: 2; grid-row: 1; }
+.shop-item-actions { grid-column: 3; grid-row: 1; }
+@media (max-width: 760px) {
+    .shop-item > .item-icon { width: 32px; height: 32px; }
+    .shop-item-actions { grid-column: 2; grid-row: 2; }
+}

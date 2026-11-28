@@ -90,3 +90,5 @@ Flyway V13은 종류·슬롯 `HAT`를 추가하고 무기·모자에 동일하�
 회복은 유효 장비를 합산한 최대 체력까지만 적용한다. 현재 체력 NULL은 최대 체력으로 처리한다. 체력이 가득 찼거나 쓰러진 상태이면 HTTP 400을 반환하고 소비하지 않는다. 성공 시 `gm_character.current_hp` 갱신과 `gm_character_item.quantity` 1개 차감을 한 트랜잭션에서 처리하며 마지막 1개이면 보유 행을 삭제한다. 캐릭터 행 잠금으로 전투·장비 변경·동시 사용과 직렬화하고, 소비 아이템 정의도 공유 잠금으로 사용 도중 관리자 변경을 방지한다.
 
 `ConsumablePostgresTests`는 `HEALING_TEST_POSTGRES_URL=jdbc:postgresql://127.0.0.1:포트/healing_test`인 전용 폐기용 PostgreSQL에서 실행한다. 계정은 `healing_test` / `healing_test_password`이며 V19까지 적용한다. 최대 체력 제한, 장비 합산, 사용 불가 조건, 마지막 수량 삭제, 전체 롤백, DB 제약과 마지막 1개 동시 사용을 검증한다.
+
+퀵슬롯은 소비 아이템 정의 ID를 등록해 클릭·`Q W E R / A S D F`로 같은 소비 API를 실행한다. 동일 아이템의 여러 보유 행 수량을 합산하고, 소진 후 재구매해도 연결을 유지한다. [게임 조작](game.md)의 퀵슬롯 설명을 참고한다. NPC 상점에서도 기존 소비·장비 아이템을 구매할 수 있으며 [NPC 관리](npcs.md)에 구매 규칙을 정리했다.
