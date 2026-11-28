@@ -158,6 +158,9 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
                 const problem = equipProblem(item);
                 if (problem) tooltip.append(el('p', 'item-status error', problem));
             }
+            if (item.itemType === 'CONSUMABLE') {
+                tooltip.append(el('p', 'item-bonuses', `HP ${item.healHp} 회복`));
+            }
             tooltip.hidden = false;
             const rect = cell.getBoundingClientRect();
             const root = shell.getBoundingClientRect();
@@ -274,6 +277,32 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
         }
     }
 
+    async function consume(item: InventoryItem) {
+        if (busy || loading || stale || item.healHp <= 0) return;
+        busy = true;
+        message = '아이템을 사용하고 있어요…';
+        error = false;
+        render();
+        try {
+            const csrf = await request<{ headerName: string; token: string }>('/api/auth/csrf', { signal: abort.signal });
+            if (disposed) return;
+            const result = await request<{ healedHp: number }>(`/api/characters/${encodeURIComponent(character.characterId)}/items/${encodeURIComponent(item.characterItemId)}/consume`, {
+                method: 'POST', signal: abort.signal,
+                headers: { [csrf.headerName]: csrf.token }
+            });
+            await refresh();
+            if (!stale) { message = `${item.name}을 사용해 HP ${result.healedHp} 회복했어요.`; error = false; }
+        } catch (cause) {
+            if (disposed) return;
+            await refresh();
+            message = cause instanceof Error ? cause.message : '아이템을 사용하지 못했어요. 다시 시도해 주세요.';
+            error = true;
+        } finally {
+            busy = false;
+            if (!disposed) render();
+        }
+    }
+
     function action(item: InventoryItem) {
         const button = el('button', 'item-action', item.equipped ? '장착 해제' : '장착하기');
         button.type = 'button';
@@ -377,7 +406,14 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
                     el('p', 'item-bonuses', `공격력 +${selected.attack} / 방어력 +${selected.defense} / 최대 체력 +${selected.hp}`));
             }
             if (['WEAPON', 'HAT'].includes(selected.itemType)) detail.append(action(selected));
-            else detail.append(el('p', 'item-caption', '보관 중인 아이템이에요.'));
+            else if (selected.itemType === 'CONSUMABLE' && selected.healHp > 0) {
+                detail.append(el('p', 'item-bonuses', `HP ${selected.healHp} 회복`));
+                const use = el('button', 'item-action', '사용하기');
+                use.type = 'button';
+                use.disabled = busy || loading || stale;
+                use.onclick = () => void consume(selected);
+                detail.append(use);
+            } else detail.append(el('p', 'item-caption', '보관 중인 아이템이에요.'));
             (selectedSource === 'inventory' ? inventory : equipment).append(detail);
         }
         windows.forEach(({ panel }) => { if (!panel.hidden) clamp(panel); });

@@ -79,6 +79,13 @@ public class CharacterController {
                 .body(items.inventory(user.getMemberId(), characterId));
     }
 
+    @PostMapping("/api/characters/{characterId}/items/{characterItemId}/consume")
+    public ResponseEntity<ItemService.ConsumeResponse> consume(@AuthenticationPrincipal MemberOidcUser user,
+            @PathVariable UUID characterId, @PathVariable UUID characterItemId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(items.consume(user.getMemberId(), characterId, characterItemId));
+    }
+
     @PutMapping("/api/characters/{characterId}/weapon")
     public ResponseEntity<Void> equipWeapon(@AuthenticationPrincipal MemberOidcUser user,
             @PathVariable UUID characterId, @RequestBody EquipWeaponRequest request) {

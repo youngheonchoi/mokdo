@@ -20,7 +20,7 @@ public class ItemService {
     public List<InventoryItemResponse> inventory(UUID memberId, UUID characterId) {
         return jdbc.query("""
                 SELECT ci.character_item_id, ci.item_id, i.item_code, i.name, i.item_type,
-                       ci.quantity, i.appearance_code, i.required_level, i.attack, i.defense, i.hp,
+                       ci.quantity, i.appearance_code, i.required_level, i.attack, i.defense, i.hp, i.heal_hp,
                        (e.character_item_id IS NOT NULL AND i.required_level <= g.level AND i.status = 'ACT'
                         AND ci.quantity = 1 AND i.item_type IN ('WEAPON', 'HAT') AND e.slot_code = i.equip_slot_code) AS equipped
                 FROM gm_character_item ci
@@ -31,7 +31,7 @@ public class ItemService {
                 """, (rs, row) -> new InventoryItemResponse(rs.getObject("character_item_id", UUID.class),
                 rs.getObject("item_id", UUID.class), rs.getString("item_code"), rs.getString("name"),
                 rs.getString("item_type"), rs.getInt("quantity"), rs.getString("appearance_code"),
-                rs.getBoolean("equipped"), rs.getInt("required_level"), rs.getInt("attack"), rs.getInt("defense"), rs.getInt("hp")), memberId, characterId);
+                rs.getBoolean("equipped"), rs.getInt("required_level"), rs.getInt("attack"), rs.getInt("defense"), rs.getInt("hp"), rs.getInt("heal_hp")), memberId, characterId);
     }
 
     @Transactional
@@ -90,6 +90,56 @@ public class ItemService {
         saveEquipment(characterId, characterItemId, slot);
     }
 
+    @Transactional
+    public ConsumeResponse consume(UUID memberId, UUID characterId, UUID characterItemId) {
+        var owned = jdbc.query("""
+                SELECT character_id FROM gm_character WHERE character_id = ? AND member_id = ? FOR UPDATE
+                """, (rs, row) -> rs.getObject("character_id", UUID.class), characterId, memberId);
+        if (owned.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "캐릭터를 찾을 수 없어요.");
+        }
+        var consumables = jdbc.query("""
+                SELECT ci.quantity, i.heal_hp FROM gm_character_item ci JOIN gm_item i ON i.item_id = ci.item_id
+                WHERE ci.character_item_id = ? AND ci.character_id = ?
+                  AND i.item_type = 'CONSUMABLE' AND i.status = 'ACT' AND i.heal_hp > 0
+                FOR UPDATE OF ci FOR SHARE OF i
+                """, (rs, row) -> new Consumable(rs.getInt("quantity"), rs.getInt("heal_hp")), characterItemId, characterId);
+        if (consumables.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "보유한 사용 가능한 회복 아이템을 선택해 주세요.");
+        }
+        var health = jdbc.query("""
+                SELECT g.current_hp, l.max_hp::bigint + COALESCE((
+                    SELECT SUM(i.hp) FROM gm_character_equipment e
+                    JOIN gm_character_item ci ON ci.character_item_id = e.character_item_id AND ci.character_id = g.character_id
+                    JOIN gm_item i ON i.item_id = ci.item_id
+                    WHERE e.character_id = g.character_id AND e.slot_code IN ('WEAPON', 'HAT')
+                      AND i.item_type = e.slot_code AND i.equip_slot_code = e.slot_code
+                      AND i.status = 'ACT' AND i.required_level <= g.level AND ci.quantity = 1
+                ), 0) AS max_hp
+                FROM gm_character g JOIN gm_character_level l ON l.level = g.level WHERE g.character_id = ?
+                """, (rs, row) -> new Health(rs.getObject("current_hp", Long.class), rs.getLong("max_hp")), characterId).getFirst();
+        long current = health.currentHp() == null ? health.maxHp() : Math.min(health.currentHp(), health.maxHp());
+        if (current <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "쓰러진 상태에서는 회복 아이템을 사용할 수 없어요.");
+        }
+        if (current >= health.maxHp()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "체력이 가득 차 있어요.");
+        }
+        var item = consumables.getFirst();
+        long healed = Math.min((long) item.healHp(), health.maxHp() - current);
+        jdbc.update("UPDATE gm_character SET current_hp = ?, mod_dtm = CURRENT_TIMESTAMP WHERE character_id = ?", current + healed, characterId);
+        if (item.quantity() == 1) {
+            jdbc.update("DELETE FROM gm_character_item WHERE character_item_id = ? AND character_id = ?", characterItemId, characterId);
+        } else {
+            jdbc.update("UPDATE gm_character_item SET quantity = quantity - 1, mod_dtm = CURRENT_TIMESTAMP WHERE character_item_id = ? AND character_id = ?", characterItemId, characterId);
+        }
+        return new ConsumeResponse(current + healed, health.maxHp(), healed);
+    }
+
+    private record Consumable(int quantity, int healHp) { }
+    private record Health(Long currentHp, long maxHp) { }
+    public record ConsumeResponse(long currentHp, long maxHp, long healedHp) { }
+
     private void saveEquipment(UUID characterId, UUID characterItemId, String slot) {
         jdbc.update("""
                 INSERT INTO gm_character_equipment (character_equipment_id, character_id, slot_code, character_item_id)
@@ -101,5 +151,5 @@ public class ItemService {
 
     public record WeaponResponse(UUID characterItemId, UUID itemId, String itemCode, String name, String appearanceCode, int attack, int defense, int hp) { }
     public record InventoryItemResponse(UUID characterItemId, UUID itemId, String itemCode, String name,
-            String itemType, int quantity, String appearanceCode, boolean equipped, int requiredLevel, int attack, int defense, int hp) { }
+            String itemType, int quantity, String appearanceCode, boolean equipped, int requiredLevel, int attack, int defense, int hp, int healHp) { }
 }

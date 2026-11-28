@@ -28,4 +28,5 @@ export type InventoryItem = {
     attack: number;
     defense: number;
     hp: number;
+    healHp: number;
 };
