@@ -136,6 +136,27 @@ public class ItemService {
         return new ConsumeResponse(current + healed, health.maxHp(), healed);
     }
 
+    @Transactional
+    public void discard(UUID memberId, UUID characterId, UUID characterItemId, int quantity) {
+        var owned = jdbc.query("""
+                SELECT character_id FROM gm_character WHERE character_id = ? AND member_id = ? FOR UPDATE
+                """, (rs, row) -> rs.getObject("character_id", UUID.class), characterId, memberId);
+        if (owned.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "캐릭터를 찾을 수 없어요.");
+        }
+        var quantities = jdbc.query("""
+                SELECT quantity FROM gm_character_item WHERE character_id = ? AND character_item_id = ? FOR UPDATE
+                """, (rs, row) -> rs.getInt("quantity"), characterId, characterItemId);
+        if (quantities.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "보유 아이템을 찾을 수 없어요.");
+        }
+        if (quantity <= 0 || quantities.getFirst() != quantity) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "아이템 수량이 변경됐어요. 다시 확인한 뒤 삭제해 주세요.");
+        }
+        jdbc.update("DELETE FROM gm_character_equipment WHERE character_id = ? AND character_item_id = ?", characterId, characterItemId);
+        jdbc.update("DELETE FROM gm_character_item WHERE character_id = ? AND character_item_id = ?", characterId, characterItemId);
+    }
+
     private record Consumable(int quantity, int healHp) { }
     private record Health(Long currentHp, long maxHp) { }
     public record ConsumeResponse(long currentHp, long maxHp, long healedHp) { }

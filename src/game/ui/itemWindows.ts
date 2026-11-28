@@ -41,6 +41,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     let top = 4;
     const abort = new AbortController();
     let externallyBlocked = false;
+    let closeConfirmation: ((accepted: boolean) => void) | undefined;
     const quickSlots = mountQuickSlots(shell, initial.characterId, binding => {
         const item = items.find(item => item.itemId === binding.itemId && item.itemType === 'CONSUMABLE' && item.quantity > 0);
         if (item) void consume(item);
@@ -89,7 +90,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
             cancelDrag();
             panel.hidden = !open;
             trigger.setAttribute('aria-expanded', String(open));
-            blockInput(isOpen());
+            blockInput(isOpen() || !!closeConfirmation);
             if (open) {
                 if (!panel.style.left) {
                     panel.style.left = `${Math.max(8, shell.clientWidth - (index + 1) * 392 - 24)}px`;
@@ -138,7 +139,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     });
     resize.observe(shell);
     window.addEventListener('keydown', event => {
-        if (event.key !== 'Escape') return;
+        if (closeConfirmation || event.key !== 'Escape') return;
         if (dragging?.active) { event.preventDefault(); suppressClickUntil = performance.now() + 300; cancelDrag(); return; }
         const front = windows.filter(({ panel }) => !panel.hidden)
             .sort((a, b) => Number(b.panel.style.zIndex) - Number(a.panel.style.zIndex))[0];
@@ -221,7 +222,11 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
         const target = active ? dropTarget(event.clientX, event.clientY) : undefined;
         if (active) suppressClickUntil = performance.now() + 300;
         cancelDrag();
-        if (!target) return;
+        if (!target) {
+            const surface = document.elementFromPoint(event.clientX, event.clientY);
+            if (active && surface instanceof HTMLCanvasElement && shell.contains(surface)) void discard(item);
+            return;
+        }
         if (target.dataset.quickslot !== undefined) {
             quickSlots.assign(Number(target.dataset.quickslot), item);
             return;
@@ -304,6 +309,96 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
         }
     }
 
+    function confirmDiscard(item: InventoryItem): Promise<boolean> {
+        return new Promise(resolve => {
+            const previousFocus = document.activeElement;
+            const backdrop = el('div', 'item-confirm-backdrop');
+            const panel = el('section', 'item-window item-confirm');
+            panel.setAttribute('role', 'alertdialog');
+            panel.setAttribute('aria-modal', 'true');
+            panel.setAttribute('aria-labelledby', 'item-confirm-title');
+            panel.setAttribute('aria-describedby', 'item-confirm-description');
+            const heading = el('h2', '', '아이템 삭제');
+            heading.id = 'item-confirm-title';
+            const header = el('div', 'item-window-header');
+            header.append(heading);
+            const body = el('div', 'item-window-body');
+            const description = el('p', 'item-confirm-description', `${item.name} ${item.quantity}개를 모두 삭제할까요?`);
+            description.id = 'item-confirm-description';
+            const warning = el('p', 'item-confirm-warning', '삭제한 아이템은 복구할 수 없습니다.');
+            const actions = el('div', 'item-confirm-actions');
+            const cancel = el('button', 'item-action', '취소');
+            const accept = el('button', 'item-action item-confirm-delete', '삭제');
+            cancel.type = accept.type = 'button';
+            actions.append(cancel, accept);
+            body.append(description);
+            if (item.equipped) body.append(el('p', 'item-caption', '장착 중인 장비도 함께 해제됩니다.'));
+            body.append(warning, actions);
+            panel.append(header, body);
+            backdrop.append(panel);
+            const background = [...shell.children].filter((node): node is HTMLElement => node instanceof HTMLElement)
+                .map(node => ({ node, inert: node.inert }));
+            background.forEach(({ node }) => { node.inert = true; });
+            shell.append(backdrop);
+            const modalAbort = new AbortController();
+            closeConfirmation = accepted => {
+                closeConfirmation = undefined;
+                modalAbort.abort();
+                backdrop.remove();
+                background.forEach(({ node, inert }) => { node.inert = inert; });
+                if (!disposed) {
+                    blockInput(isOpen());
+                    quickSlots.update(items, !loaded || busy || loading || stale || !!closeConfirmation);
+                    if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
+                    else windows.find(({ panel }) => !panel.hidden)?.panel.focus({ preventScroll: true });
+                }
+                resolve(accepted);
+            };
+            cancel.onclick = () => closeConfirmation?.(false);
+            accept.onclick = () => closeConfirmation?.(true);
+            backdrop.onclick = event => { if (event.target === backdrop) closeConfirmation?.(false); };
+            window.addEventListener('keydown', event => {
+                event.stopImmediatePropagation();
+                if (event.key === 'Escape') { event.preventDefault(); closeConfirmation?.(false); }
+                else if (event.key === 'Tab') {
+                    event.preventDefault();
+                    (document.activeElement === cancel ? accept : cancel).focus();
+                } else if (!['Enter', ' '].includes(event.key)) event.preventDefault();
+            }, { capture: true, signal: modalAbort.signal });
+            window.addEventListener('keyup', event => event.stopImmediatePropagation(), { capture: true, signal: modalAbort.signal });
+            blockInput(true);
+            quickSlots.update(items, true);
+            cancel.focus({ preventScroll: true });
+        });
+    }
+
+    async function discard(item: InventoryItem) {
+        if (busy || loading || stale || externallyBlocked) return;
+        if (closeConfirmation || !await confirmDiscard(item) || disposed) return;
+        busy = true;
+        message = '아이템을 삭제하고 있어요…';
+        error = false;
+        render();
+        try {
+            const csrf = await request<{ headerName: string; token: string }>('/api/auth/csrf', { signal: abort.signal });
+            if (disposed) return;
+            await request(`/api/characters/${encodeURIComponent(character.characterId)}/items/${encodeURIComponent(item.characterItemId)}?quantity=${item.quantity}`, {
+                method: 'DELETE', signal: abort.signal,
+                headers: { [csrf.headerName]: csrf.token }
+            });
+            await refreshAfterMutation();
+            if (!stale) { message = `${item.name} ${item.quantity}개를 삭제했어요.`; error = false; }
+        } catch (cause) {
+            if (disposed) return;
+            await refreshAfterMutation();
+            message = cause instanceof Error ? cause.message : '아이템을 삭제하지 못했어요. 다시 시도해 주세요.';
+            error = true;
+        } finally {
+            busy = false;
+            if (!disposed) { render(); quickSlots.announce(message, error); }
+        }
+    }
+
     async function consume(item: InventoryItem) {
         if (busy || loading || stale || externallyBlocked || item.healHp <= 0) return;
         busy = true;
@@ -344,7 +439,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     function render() {
         hideTooltip();
         cancelDrag();
-        quickSlots.update(items, !loaded || busy || loading || stale);
+        quickSlots.update(items, !loaded || busy || loading || stale || !!closeConfirmation);
         inventory.replaceChildren();
         equipment.replaceChildren();
         for (const body of [inventory, equipment]) {
@@ -377,10 +472,10 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
                 selectedSource = 'inventory';
                 render();
             };
-            if (['WEAPON', 'HAT', 'CONSUMABLE'].includes(item.itemType)) {
+            {
                 cell.classList.add('draggable-item');
                 cell.onpointerdown = event => {
-                    if (event.button !== 0 || busy || loading || stale) return;
+                    if (event.button !== 0 || busy || loading || stale || externallyBlocked) return;
                     dragging = { item, pointer: event.pointerId, x: event.clientX, y: event.clientY, active: false, source: cell };
                     cell.setPointerCapture(event.pointerId);
                 };
@@ -396,7 +491,7 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
         }
         inventory.append(grid);
         if (!items.length) inventory.append(el('p', 'item-empty', '보유한 아이템이 없어요.'));
-        inventory.append(el('p', 'item-caption slot-help', '장비는 장비창으로, 소비 아이템은 하단 퀵슬롯으로 끌어 놓으세요.'));
+        inventory.append(el('p', 'item-caption slot-help', '장비는 장비창으로, 소비 아이템은 하단 퀵슬롯으로 끌어 놓으세요. 바닥에 놓으면 확인 후 해당 칸의 아이템을 모두 삭제해요.'));
         equipment.append(el('p', 'item-caption', `${character.nickname} · 레벨 ${character.level ?? 1}`));
         const stats = el('dl', 'equipment-stats');
         for (const [label, value] of [['최대 체력', character.maxHp], ['공격력', character.attack], ['방어력', character.defense]] as const) {
@@ -450,11 +545,12 @@ export function mountItemWindows(shell: HTMLElement, toolbar: HTMLElement, initi
     render();
     void refresh();
     const dispose = () => {
+        disposed = true;
+        closeConfirmation?.(false);
         hideTooltip();
         cancelDrag();
         tooltip.remove();
         quickSlots.dispose();
-        disposed = true;
         abort.abort();
         resize.disconnect();
         windows.forEach(({ panel, trigger }) => { panel.remove(); trigger.remove(); });

@@ -79,6 +79,13 @@ public class CharacterController {
                 .body(items.inventory(user.getMemberId(), characterId));
     }
 
+    @DeleteMapping("/api/characters/{characterId}/items/{characterItemId}")
+    public ResponseEntity<Void> discard(@AuthenticationPrincipal MemberOidcUser user,
+            @PathVariable UUID characterId, @PathVariable UUID characterItemId, @RequestParam int quantity) {
+        items.discard(user.getMemberId(), characterId, characterItemId, quantity);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
     @PostMapping("/api/characters/{characterId}/items/{characterItemId}/consume")
     public ResponseEntity<ItemService.ConsumeResponse> consume(@AuthenticationPrincipal MemberOidcUser user,
             @PathVariable UUID characterId, @PathVariable UUID characterItemId) {

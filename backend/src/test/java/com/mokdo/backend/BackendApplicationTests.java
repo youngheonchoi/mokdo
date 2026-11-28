@@ -380,6 +380,16 @@ class BackendApplicationTests {
 
 
     @Test
+    void itemDiscardRequiresLoginCsrfAndOwnedCharacter() throws Exception {
+        String path = "/api/characters/" + UUID.randomUUID() + "/items/" + UUID.randomUUID() + "?quantity=1";
+        mvc.perform(delete(path).with(csrf())).andExpect(status().isUnauthorized());
+        mvc.perform(delete(path).with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete(path).with(oidcLogin().oidcUser(memberUser(UUID.randomUUID()))).with(csrf()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void battleRequiresLoginCsrfAndOwnedCharacter() throws Exception {
         String path = "/api/characters/" + UUID.randomUUID() + "/battle";
         mvc.perform(post(path).with(csrf())).andExpect(status().isUnauthorized());

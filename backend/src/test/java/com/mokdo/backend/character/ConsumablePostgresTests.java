@@ -106,6 +106,33 @@ class ConsumablePostgresTests {
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("UPDATE gm_item SET heal_hp = NULL WHERE item_id = ?", potion));
     }
 
+    @Test void discardsStackOnlyForOwnerAndConfirmedQuantity() {
+        assertThrows(ResponseStatusException.class, () -> transactions.executeWithoutResult(status -> items.discard(UUID.randomUUID(), character, owned, 2)));
+        assertThrows(ResponseStatusException.class, () -> transactions.executeWithoutResult(status -> items.discard(member, character, UUID.randomUUID(), 2)));
+        for (int count : new int[]{-1, 0, 1, 3}) {
+            var error = assertThrows(ResponseStatusException.class, () -> transactions.executeWithoutResult(status -> items.discard(member, character, owned, count)));
+            assertEquals(409, error.getStatusCode().value());
+            assertEquals(2, quantity());
+        }
+        assertThrows(IllegalStateException.class, () -> transactions.executeWithoutResult(status -> {
+            items.discard(member, character, owned, 2);
+            throw new IllegalStateException("rollback");
+        }));
+        assertEquals(2, quantity());
+        transactions.executeWithoutResult(status -> items.discard(member, character, owned, 2));
+        assertEquals(0, quantity());
+        assertEquals(20, hp());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM gm_item WHERE item_id = ?", Integer.class, potion));
+    }
+
+    @Test void deletesEquipmentReferenceBeforeOwnedItem() {
+        var weapon = transactions.execute(status -> items.grantDefaultWeapon(character));
+        transactions.executeWithoutResult(status -> items.discard(member, character, weapon.characterItemId(), 1));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM gm_character_equipment WHERE character_id = ?", Integer.class, character));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM gm_character_item WHERE character_item_id = ?", Integer.class, weapon.characterItemId()));
+        assertEquals(2, quantity());
+    }
+
     @Test void concurrentRequestsCannotConsumeLastPotionTwice() throws Exception {
         jdbc.update("UPDATE gm_character_item SET quantity = 1 WHERE character_item_id = ?", owned);
         var start = new CountDownLatch(1);
