@@ -1,3 +1,4 @@
+import { maps, portals, nearbyPortal, type MapId } from '../portals';
 import { frameFootprint, type FrameFootprint } from '../assets/frameFootprint';
 import { legacyCharacterSheet, spriteSheet, registerSheet, playAction, type SpriteSheet } from '../assets/spriteSheet';
 import { moveMonster, monsterBehavior } from '../monsterMotion';
@@ -24,7 +25,7 @@ export class Forest extends Scene {
     private weaponGrip: WeaponGrip = { originX: .5, originY: .85, axisAngle: -Math.PI / 2 };
     private shadow: GameObjects.Ellipse;
     private cursors: Phaser.Types.Input.Keyboard.CursorKeys;
-    private keys: Record<'SPACE' | 'Z', Input.Keyboard.Key>;
+    private keys: Record<'SPACE' | 'Z' | 'G', Input.Keyboard.Key>;
     private obstacles: Obstacle[] = [];
     private facing: Direction = 'east';
     private textureKey = defaultCharacter.key as string;
@@ -35,6 +36,9 @@ export class Forest extends Scene {
     private attackReadyAt = 0;
     private attackFacing: Direction = 'east';
     private uiBlocked = false;
+    private mapId: MapId = 'forest';
+    private portalRequest?: string;
+    private portalVisuals: { mapId: MapId; ring: GameObjects.Ellipse; label: GameObjects.Text }[] = [];
     private weaponRevision = 0;
     private battleAvailable = false;
     private outgoingJump = false;
@@ -115,9 +119,24 @@ export class Forest extends Scene {
         this.cameras.main.roundPixels = true;
         this.resizeCamera();
         this.cursors = this.input.keyboard!.createCursorKeys();
-        this.keys = this.input.keyboard!.addKeys('SPACE,Z') as typeof this.keys;
+        this.keys = this.input.keyboard!.addKeys('SPACE,Z,G') as typeof this.keys;
         this.keys.SPACE.on('down', () => { this.jumpRequested = true; });
         this.keys.Z.on('down', () => { this.attackRequested = true; });
+        this.keys.G.on('down', (_key: Input.Keyboard.Key, event: KeyboardEvent) => {
+            if (event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey
+                || (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])'))
+                || this.uiBlocked || !this.battleAvailable || document.hidden || (this.character.currentHp ?? 1) <= 0 || this.portalRequest) return;
+            const portal = nearbyPortal(this.mapId, this.player.x, this.player.y);
+            if (!portal) return;
+            this.portalRequest = portal.id;
+            this.resetInput();
+            this.callbacks.action?.();
+        });
+        for (const portal of portals) {
+            const ring = this.add.ellipse(portal.x, portal.y - 45, 64, 100, 0x6ba5a0, .35).setStrokeStyle(3, 0xb9f5e4).setDepth(portal.y - 1);
+            const label = this.add.text(portal.x, portal.y - 115, portal.destination, { fontSize: '16px', color: '#e0ffee', backgroundColor: '#173c30', padding: { x: 8, y: 6 } }).setOrigin(.5).setDepth(1500);
+            this.portalVisuals.push({ mapId: portal.mapId, ring, label });
+        }
         this.game.events.on('blur', this.resetInput, this);
         const resizeCamera = () => this.resizeCamera();
         const updateOverlay = () => {
@@ -175,6 +194,7 @@ export class Forest extends Scene {
         const paused = this.uiBlocked || !this.battleAvailable || document.hidden;
         const dead = (this.character.currentHp ?? 1) === 0;
         const input = {
+            portalId: !paused && !dead ? this.portalRequest : undefined,
             moveX: paused || dead ? 0 : Number(this.cursors.right.isDown) - Number(this.cursors.left.isDown),
             moveY: paused || dead ? 0 : Number(this.cursors.down.isDown) - Number(this.cursors.up.isDown),
             attack: false,
@@ -182,7 +202,7 @@ export class Forest extends Scene {
             travelX: paused || dead ? 0 : this.movementX - this.sentMovementX,
             travelY: paused || dead ? 0 : this.movementY - this.sentMovementY,
             strikes: paused || dead ? [] : this.queuedStrikes.slice(0, 8),
-            prediction: { movementX: this.movementX, movementY: this.movementY, sentAt: performance.now() }
+            prediction: { portalId: !paused && !dead ? this.portalRequest : undefined, movementX: this.movementX, movementY: this.movementY, sentAt: performance.now() }
         };
         this.sentMovementX = this.movementX;
         this.sentMovementY = this.movementY;
@@ -191,6 +211,20 @@ export class Forest extends Scene {
     }
 
     applyBattle(state: BattleState, entering: boolean, prediction?: BattlePrediction) {
+        const mapId = state.mapId ?? 'forest';
+        const mapChanged = mapId !== this.mapId;
+        if (mapChanged) {
+            this.mapId = mapId;
+            this.portalRequest = undefined;
+            this.resetInput();
+            this.jumpingUntil = 0;
+            this.attackStartedAt = -Infinity;
+            this.strikeResolved = true;
+            this.pendingHits.clear(); this.queuedStrikes = []; this.shownHits.clear();
+            this.children.list.forEach(child => {
+                if (child instanceof GameObjects.Image && child.texture.key === 'forest-tiles') child.setTint(maps[mapId].tint);
+            });
+        } else if (this.portalRequest && prediction?.portalId === this.portalRequest) this.portalRequest = undefined;
         const previousGeneration = this.battleState?.monster.generation;
         const wasDead = (this.character.currentHp ?? 1) === 0;
         if (entering) {
@@ -206,7 +240,7 @@ export class Forest extends Scene {
         this.setCharacter(state.character);
         const dead = (state.character.currentHp ?? 1) === 0;
         if (wasDead && !dead) this.sprite.setAlpha(1).clearTint();
-        if (entering || dead || wasDead !== dead) {
+        if (entering || mapChanged || dead || wasDead !== dead) {
             this.player.setPosition(state.player.x, state.player.y);
             this.facing = state.player.facing;
             this.correctionX = this.correctionY = 0;
@@ -249,7 +283,7 @@ export class Forest extends Scene {
             });
             this.load.start();
         }
-        if (entering || !this.enemyLoaded || previousGeneration !== state.monster.generation) {
+        if (entering || mapChanged || !this.enemyLoaded || previousGeneration !== state.monster.generation) {
             this.enemy.setPosition(state.monster.x, state.monster.y);
             this.enemyCorrectionX = this.enemyCorrectionY = 0;
             this.enemyReturning = state.monster.returning;
@@ -264,6 +298,7 @@ export class Forest extends Scene {
             this.enemyCorrectionX = projected.x - this.enemy.x;
             this.enemyCorrectionY = projected.y - this.enemy.y;
         }
+        this.enemy.setVisible(this.mapId === 'forest');
         this.enemyLoaded = true;
         this.publishBattle(effects);
         for (const event of effects) {
@@ -327,12 +362,12 @@ export class Forest extends Scene {
             }
         }
         this.enemyHp = hp;
-        this.enemyShadow?.setVisible(hp > 0);
+        this.enemyShadow?.setVisible(hp > 0 && this.mapId === 'forest');
         this.callbacks.battleView?.({ ...this.battleState, monster: { ...this.battleState.monster, hp }, effects });
     }
 
     private resolveStrike() {
-        if (!this.enemy || !this.battleState || this.enemyHp <= 0) return;
+        if (this.mapId !== 'forest' || !this.enemy || !this.battleState || this.enemyHp <= 0) return;
         const strike: BattleStrike = { id: ++this.strikeSeq, generation: this.battleState.monster.generation,
             x: this.player.x, y: this.player.y, targetX: this.enemy.x, targetY: this.enemy.y, facing: this.attackFacing };
         this.queuedStrikes.push(strike);
@@ -388,7 +423,7 @@ export class Forest extends Scene {
     update(time: number, delta: number) {
         if (!this.player || !this.cursors) return;
         const dead = (this.character.currentHp ?? 1) === 0;
-        const blocked = this.uiBlocked || !this.battleAvailable || dead || document.hidden;
+        const blocked = this.uiBlocked || !this.battleAvailable || dead || document.hidden || !!this.portalRequest;
         const dx = blocked ? 0 : Number(this.cursors.right.isDown) - Number(this.cursors.left.isDown);
         const dy = blocked ? 0 : Number(this.cursors.down.isDown) - Number(this.cursors.up.isDown);
         const distance = Math.hypot(dx, dy);
@@ -465,7 +500,7 @@ export class Forest extends Scene {
         this.positionCamera();
         if (this.enemy) {
             const beforeX = this.enemy.x, beforeY = this.enemy.y;
-            if (!blocked && this.enemyHp > 0) {
+            if (!blocked && this.mapId === 'forest' && this.enemyHp > 0) {
                 const wasReturning = this.enemyReturning;
                 const motion = moveMonster({ x: this.enemy.x, y: this.enemy.y, returning: this.enemyReturning },
                     this.player.x, this.player.y, Math.min(delta, 250) / 1000);
@@ -490,6 +525,11 @@ export class Forest extends Scene {
             }
             this.enemy.setDepth(this.enemy.y);
             this.positionEnemyShadow();
+        }
+        const nearby = !blocked ? nearbyPortal(this.mapId, this.player.x, this.player.y) : undefined;
+        for (const [index, visual] of this.portalVisuals.entries()) {
+            visual.ring.setVisible(visual.mapId === this.mapId);
+            visual.label.setVisible(visual.mapId === this.mapId).setText(`${portals[index].destination}${nearby?.id === portals[index].id ? '\n[G] 이동' : ''}`);
         }
         for (const { tree } of this.obstacles) {
             if (!tree) continue;

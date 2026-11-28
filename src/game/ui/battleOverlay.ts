@@ -43,7 +43,7 @@ export function mountBattleOverlay(shell: HTMLElement) {
         exp.value = c.exp ?? 0;
         expLabel.textContent = `경험치 ${(c.exp ?? 0).toLocaleString()}${c.requiredExp == null ? ' · 최고 설정 레벨' : ` / ${c.requiredExp.toLocaleString()}`}`;
         currency.textContent = `재화 ${(c.currency ?? 0).toLocaleString()}`;
-        enemy.hidden = next.monster.hp <= 0;
+        enemy.hidden = next.monster.hp <= 0 || next.mapId === 'clearing';
         enemyName.textContent = `${next.monster.definition.name} · Lv.${next.monster.definition.level}`;
         enemyHp.max = next.monster.definition.maxHp;
         enemyHp.value = next.monster.hp;

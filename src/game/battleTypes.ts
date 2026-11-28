@@ -2,6 +2,7 @@ import type { GameCharacter } from './types';
 
 export type BattleEffect = { kind: string; amount: number; label: string; x: number; y: number; attackId?: number | null };
 export type BattleState = {
+    mapId?: 'forest' | 'clearing';
     sessionId: string;
     seq: number;
     serverTime: number;
@@ -14,9 +15,10 @@ export type BattleState = {
     lastAttackId: number;
     effects: BattleEffect[];
 };
-export type BattlePrediction = { movementX: number; movementY: number; sentAt: number };
+export type BattlePrediction = { portalId?: string; movementX: number; movementY: number; sentAt: number };
 export type BattleStrike = { id: number; generation: number; x: number; y: number; targetX: number; targetY: number; facing: 'east' | 'west' };
 export type BattleInput = {
+    portalId?: string;
     moveX: number; moveY: number; attack: boolean; jump: boolean; paused: boolean;
     strikes: BattleStrike[];
     travelX: number; travelY: number; prediction: BattlePrediction;

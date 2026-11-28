@@ -58,6 +58,52 @@ class BattlePostgresTests {
     }
     BattleService.Command command(boolean attack) {return new BattleService.Command(entered.sessionId(),++seq,0,0,attack,false,false);}
     BattleService.State tick(boolean attack) {var command=command(attack);return tx.execute(status->battles.tick(member,character,command));}
+    BattleService.State portal(String id, boolean paused) {
+        return battles.tick(member, character, new BattleService.Command(entered.sessionId(), ++seq,
+                0, 0, false, false, paused, 0.0, 0.0, List.of(), id));
+    }
+
+    @Test void portalsRequireProximityAndPreserveForestBattleAcrossRoundTrip() {
+        assertEquals("forest", entered.mapId());
+        assertEquals("forest", portal("forest-east", false).mapId());
+        var battle = battles.sessions.get(character);
+        battle.x = 3400; battle.y = 690;
+        assertEquals("forest", portal("forest-east", false).mapId());
+        battles.sessions.get(character).y = 560;
+        assertEquals("forest", portal("forest-east", true).mapId());
+        assertEquals("forest", portal("unknown", false).mapId());
+        var before = battles.sessions.get(character);
+        before.monsterHp = 4;
+        var changed = portal("forest-east", false);
+        assertEquals("clearing", changed.mapId());
+        assertEquals(320, changed.player().x());
+        assertEquals(560, changed.player().y());
+        assertEquals(4, changed.monster().hp());
+        assertTrue(changed.effects().stream().anyMatch(effect -> effect.kind().equals("MAP_CHANGED")));
+        clock.advance(30000);
+        assertEquals("clearing", portal("forest-east", false).mapId());
+        assertEquals(4, tick(true).monster().hp());
+        assertEquals("clearing", portal("clearing-west", false).mapId());
+        battles.sessions.get(character).x = 200;
+        var returned = portal("clearing-west", false);
+        assertEquals("forest", returned.mapId());
+        assertEquals(3280, returned.player().x());
+        assertEquals(4, returned.monster().hp());
+        assertEquals(0, returned.character().currency());
+    }
+
+    @Test void portalsDoNotMoveDeadCharactersAndReconnectRestoresMap() {
+        battles.sessions.get(character).x = 3400;
+        jdbc.update("UPDATE gm_character SET current_hp=0 WHERE character_id=?", character);
+        assertEquals("forest", portal("forest-east", false).mapId());
+        jdbc.update("UPDATE gm_character SET current_hp=100 WHERE character_id=?", character);
+        assertEquals("clearing", portal("forest-east", false).mapId());
+        var reconnect = battles.enter(member, character);
+        assertEquals("clearing", reconnect.mapId());
+        assertEquals(320, reconnect.player().x());
+        assertThrows(ResponseStatusException.class, () -> portal("clearing-west", false));
+    }
+
     UUID drop(String type,int chance,int quantity) {
         UUID id=UUID.randomUUID();
         jdbc.update("INSERT INTO gm_item(item_id,item_code,name,item_type,equip_slot_code,appearance_code) VALUES(?,?,?, ?,?,?)",id,id.toString(),"획득아이템",type,List.of("WEAPON","HAT").contains(type)?type:null,List.of("WEAPON","HAT").contains(type)?"test-item":null);

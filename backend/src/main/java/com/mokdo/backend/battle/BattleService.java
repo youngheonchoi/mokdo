@@ -111,7 +111,7 @@ public class BattleService {
             if (battle.reviveAt == null) battle.reviveAt = now.plusSeconds(5);
             if (!now.isBefore(battle.reviveAt)) {
                 hp = character.maxHp(); battle.reviveAt = null;
-                battle.x = 400; battle.y = 560;
+                battle.mapId = "forest"; battle.x = 400; battle.y = 560;
                 battle.monsterX = 800; battle.monsterY = 560; battle.returning = false;
                 // A living monster recovers when the player revives. A killed one
                 // retains its respawn timer, so revival cannot generate extra rewards.
@@ -140,50 +140,66 @@ public class BattleService {
                 battle.movementCredit = Math.min(.25, Math.max(0, battle.movementCredit - seconds * ratio));
             }
             if (command.jump() && !now.isBefore(battle.jumpUntil)) battle.jumpUntil = now.plusMillis(480);
-            battle.monsterHp = Math.min(battle.monsterHp, monster.maxHp());
-            if (battle.monsterHp == 0 && battle.respawnAt != null && !now.isBefore(battle.respawnAt)) {
-                battle.monsterHp = monster.maxHp(); battle.monsterX = 800; battle.monsterY = 560; battle.returning = false;
-                battle.generation++;
-                battle.respawnAt = null; battle.monsterAttackAt = now.plusSeconds(1);
-                effect(effects, "SPAWN", 0, "", battle.monsterX, battle.monsterY);
+            boolean transferred = false;
+            if ("forest-east".equals(command.portalId()) && "forest".equals(battle.mapId)
+                    && Math.hypot(battle.x - 3400, battle.y - 560) <= 100) {
+                battle.mapId = "clearing"; battle.x = 320; battle.y = 560; transferred = true;
+            } else if ("clearing-west".equals(command.portalId()) && "clearing".equals(battle.mapId)
+                    && Math.hypot(battle.x - 200, battle.y - 560) <= 100) {
+                battle.mapId = "forest"; battle.x = 3280; battle.y = 560; transferred = true;
             }
-            if (command.strikes() != null) {
-                for (Strike strike : command.strikes()) {
-                    if (strike.id() <= battle.lastAttackId) continue;
-                    battle.lastAttackId = strike.id();
-                    if (battle.attackCredit < .999 || battle.monsterHp == 0 || strike.generation() != battle.generation) continue;
-                    battle.attackCredit = Math.max(0, battle.attackCredit - 1);
+            if (transferred) {
+                battle.jumpUntil = now; battle.movementCredit = 0;
+                battle.attackAt = now.plusMillis(400);
+                battle.lastAttackId = Math.max(battle.lastAttackId, command.strikes() == null ? 0 : command.strikes().stream().mapToLong(Strike::id).max().orElse(0));
+                effect(effects, "MAP_CHANGED", 0, battle.mapId, battle.x, battle.y);
+            }
+            if ("forest".equals(battle.mapId) && !transferred) {
+                battle.monsterHp = Math.min(battle.monsterHp, monster.maxHp());
+                if (battle.monsterHp == 0 && battle.respawnAt != null && !now.isBefore(battle.respawnAt)) {
+                    battle.monsterHp = monster.maxHp(); battle.monsterX = 800; battle.monsterY = 560; battle.returning = false;
+                    battle.generation++;
+                    battle.respawnAt = null; battle.monsterAttackAt = now.plusSeconds(1);
+                    effect(effects, "SPAWN", 0, "", battle.monsterX, battle.monsterY);
+                }
+                if (command.strikes() != null) {
+                    for (Strike strike : command.strikes()) {
+                        if (strike.id() <= battle.lastAttackId) continue;
+                        battle.lastAttackId = strike.id();
+                        if (battle.attackCredit < .999 || battle.monsterHp == 0 || strike.generation() != battle.generation) continue;
+                        battle.attackCredit = Math.max(0, battle.attackCredit - 1);
+                        battle.attackAt = now.plusMillis(400);
+                        // Validate the displayed contact snapshot against recent server
+                        // positions. Damage and rewards always use server-owned stats.
+                        boolean recent = Math.abs(strike.x() - battle.x) <= 336 && Math.abs(strike.y() - battle.y) <= 202
+                                && Math.abs(strike.targetX() - battle.monsterX) <= 185 && Math.abs(strike.targetY() - battle.monsterY) <= 112;
+                        if (recent && inRange(strike.x(), strike.y(), strike.targetX(), strike.targetY(), strike.facing())) {
+                            if (hit(characterId, character, monster, battle, effects, now, strike.id())) hp = owned(member, characterId).maxHp();
+                        }
+                    }
+                } else if (command.attack() && !now.isBefore(battle.attackAt)) {
                     battle.attackAt = now.plusMillis(400);
-                    // Validate the displayed contact snapshot against recent server
-                    // positions. Damage and rewards always use server-owned stats.
-                    boolean recent = Math.abs(strike.x() - battle.x) <= 336 && Math.abs(strike.y() - battle.y) <= 202
-                            && Math.abs(strike.targetX() - battle.monsterX) <= 185 && Math.abs(strike.targetY() - battle.monsterY) <= 112;
-                    if (recent && inRange(strike.x(), strike.y(), strike.targetX(), strike.targetY(), strike.facing())) {
-                        if (hit(characterId, character, monster, battle, effects, now, strike.id())) hp = owned(member, characterId).maxHp();
+                    battle.attackCredit = Math.max(0, battle.attackCredit - 1);
+                    if (battle.monsterHp > 0 && inRange(battle.x, battle.y, battle.monsterX, battle.monsterY, battle.facing)) {
+                        if (hit(characterId, character, monster, battle, effects, now, null)) hp = owned(member, characterId).maxHp();
                     }
                 }
-            } else if (command.attack() && !now.isBefore(battle.attackAt)) {
-                battle.attackAt = now.plusMillis(400);
-                battle.attackCredit = Math.max(0, battle.attackCredit - 1);
-                if (battle.monsterHp > 0 && inRange(battle.x, battle.y, battle.monsterX, battle.monsterY, battle.facing)) {
-                    if (hit(characterId, character, monster, battle, effects, now, null)) hp = owned(member, characterId).maxHp();
-                }
-            }
-            if (battle.monsterHp > 0) {
-                MonsterMotion motion = moveMonster(battle.monsterX, battle.monsterY, battle.returning, battle.x, battle.y, dt);
-                battle.monsterX = clamp(motion.x(), 72, 3528);
-                battle.monsterY = clamp(motion.y(), 430, 690);
-                battle.returning = motion.returning();
-                long jumpLeft = Duration.between(now, battle.jumpUntil).toMillis();
-                boolean airborne = jumpLeft > 80 && jumpLeft < 430;
-                if (!battle.returning && Math.abs(battle.x - battle.monsterX) <= 55 && Math.abs(battle.y - battle.monsterY) <= 32
-                        && !now.isBefore(battle.monsterAttackAt) && !airborne) {
-                    long damage = Math.min(hp, damage(monster.attack(), character.defense()));
-                    hp -= damage; battle.monsterAttackAt = now.plusMillis(1200);
-                    effect(effects, "PLAYER_HIT", damage, "", battle.x, battle.y);
-                    if (hp == 0) {
-                        battle.reviveAt = now.plusSeconds(5);
-                        effect(effects, "PLAYER_DIED", 0, "", battle.x, battle.y);
+                if (battle.monsterHp > 0) {
+                    MonsterMotion motion = moveMonster(battle.monsterX, battle.monsterY, battle.returning, battle.x, battle.y, dt);
+                    battle.monsterX = clamp(motion.x(), 72, 3528);
+                    battle.monsterY = clamp(motion.y(), 430, 690);
+                    battle.returning = motion.returning();
+                    long jumpLeft = Duration.between(now, battle.jumpUntil).toMillis();
+                    boolean airborne = jumpLeft > 80 && jumpLeft < 430;
+                    if (!battle.returning && Math.abs(battle.x - battle.monsterX) <= 55 && Math.abs(battle.y - battle.monsterY) <= 32
+                            && !now.isBefore(battle.monsterAttackAt) && !airborne) {
+                        long damage = Math.min(hp, damage(monster.attack(), character.defense()));
+                        hp -= damage; battle.monsterAttackAt = now.plusMillis(1200);
+                        effect(effects, "PLAYER_HIT", damage, "", battle.x, battle.y);
+                        if (hp == 0) {
+                            battle.reviveAt = now.plusSeconds(5);
+                            effect(effects, "PLAYER_DIED", 0, "", battle.x, battle.y);
+                        }
                     }
                 }
             }
@@ -268,14 +284,14 @@ public class BattleService {
     }
     private State state(UUID member, UUID id, Battle b, Monster monster, List<Effect> effects) {
         return new State(b.session,b.seq,clock.millis(),owned(member,id),new Player(b.x,b.y,b.facing,millis(b.reviveAt)),
-                new Enemy(monster,b.monsterHp,b.monsterX,b.monsterY,millis(b.respawnAt),b.generation,b.returning),b.lastAttackId,List.copyOf(effects));
+                new Enemy(monster,b.monsterHp,b.monsterX,b.monsterY,millis(b.respawnAt),b.generation,b.returning),b.lastAttackId,List.copyOf(effects),b.mapId);
     }
     private static Long millis(Instant value) { return value == null ? null : value.toEpochMilli(); }
     static final class Battle implements Cloneable {
         UUID session,monster;
         long seq,monsterHp,lastAttackId,generation=1;
         double x=400,y=560,monsterX=800,monsterY=560,movementCredit=.25,attackCredit=1;
-        String facing="east";
+        String facing="east",mapId="forest";
         boolean returning;
         Instant respawnAt,reviveAt,attackAt,monsterAttackAt,jumpUntil,lastTick;
         Battle(Monster definition, Instant now) {
@@ -289,7 +305,10 @@ public class BattleService {
         }
     }
     private record Outcome(State state, Battle battle) { }
-    public record Command(UUID sessionId,long seq,int moveX,int moveY,boolean attack,boolean jump,boolean paused,Double travelX,Double travelY,List<Strike> strikes) {
+    public record Command(UUID sessionId,long seq,int moveX,int moveY,boolean attack,boolean jump,boolean paused,Double travelX,Double travelY,List<Strike> strikes,String portalId) {
+        public Command(UUID sessionId,long seq,int moveX,int moveY,boolean attack,boolean jump,boolean paused,Double travelX,Double travelY,List<Strike> strikes) {
+            this(sessionId,seq,moveX,moveY,attack,jump,paused,travelX,travelY,strikes,null);
+        }
         public Command(UUID sessionId,long seq,int moveX,int moveY,boolean attack,boolean jump,boolean paused,Double travelX,Double travelY) {
             this(sessionId,seq,moveX,moveY,attack,jump,paused,travelX,travelY,null);
         }
@@ -302,6 +321,6 @@ public class BattleService {
     public record Enemy(Monster definition,long hp,double x,double y,Long respawnAt,long generation,boolean returning) { }
     public record Player(double x,double y,String facing,Long reviveAt) { }
     public record Effect(String kind,long amount,String label,double x,double y,Long attackId) { }
-    public record State(UUID sessionId,long seq,long serverTime,CharacterResponse character,Player player,Enemy monster,long lastAttackId,List<Effect> effects) { }
+    public record State(UUID sessionId,long seq,long serverTime,CharacterResponse character,Player player,Enemy monster,long lastAttackId,List<Effect> effects,String mapId) { }
     private record Drop(UUID id,String name,String type,int chance,int min,int max) { }
 }

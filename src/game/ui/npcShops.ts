@@ -172,6 +172,7 @@ export function mountNpcShops(shell: HTMLElement, initial: GameCharacter,
     }
     void loadNpcs();
     return {
+        setMap(value: string) { layer.hidden = value !== 'forest'; notice.hidden = value !== 'forest'; },
         position(scrollX: number, scrollY: number, zoom: number) {
             actors.forEach(({ button, x, y }) => {
                 const screenX = (x - scrollX) * zoom, screenY = (y - scrollY) * zoom;

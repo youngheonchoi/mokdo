@@ -377,3 +377,5 @@ body.in-game #app { display: block; height: 100dvh; min-height: 0; }
 .item-confirm-actions .item-confirm-delete { color: #fff1e9; border-color: #b6705d; background: #743c31; }
 .item-confirm-actions .item-confirm-delete:hover { background: #8c493b; }
 .item-confirm-actions .item-action:focus-visible { outline: 2px solid #f3d891; outline-offset: 3px; }
+
+.npc-layer[hidden] { display: none; }

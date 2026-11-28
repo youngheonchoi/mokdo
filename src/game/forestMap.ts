@@ -59,7 +59,7 @@ export function buildForest(scene: Scene): Obstacle[] {
         const tree = scene.add.image(x, y, 'forest-tree').setScale(2.4).setOrigin(.5, .96).setDepth(y);
         obstacles.push({ x, y, radius: 30, tree });
     }
-    // Trees close the two ends visually; there are no room transitions yet.
+    // Trees close the boundaries visually; portals handle map transitions inside the walkable strip.
     for (const x of [0, forestMap.width]) {
         for (const y of [430, 570, 730]) {
             const tree = scene.add.image(x, y, 'forest-tree').setScale(2).setOrigin(.5, .96).setDepth(y);

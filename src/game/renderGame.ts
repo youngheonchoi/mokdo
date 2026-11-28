@@ -1,3 +1,4 @@
+import { maps } from './portals';
 import { mountFullscreenButton } from './ui/fullscreenButton';
 import StartGame from './main';
 import type { GameCharacter } from './types';
@@ -58,7 +59,7 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
     const toolbar = node('nav', 'game-toolbar');
     toolbar.setAttribute('aria-label', '캐릭터 메뉴');
     toolbar.hidden = true;
-    footer.append(equipped, node('p', 'game-help', '← → 진행 · ↑ ↓ 앞뒤 이동 · SPACE 점프 · Z 공격'), toolbar);
+    footer.append(equipped, node('p', 'game-help', '← → 진행 · ↑ ↓ 앞뒤 이동 · SPACE 점프 · Z 공격 · G 상호작용'), toolbar);
     const loading = node('p', 'game-loading', '숲길을 준비하고 있어요…');
     loading.setAttribute('role', 'status');
     const nameplate = node('span', 'game-nameplate', character.nickname);
@@ -83,6 +84,10 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
             const scene = game.scene.getScene('Forest') as Forest;
             stopBattle = connectBattle(character.characterId, () => scene.battleInput(), (state, entering, prediction) => {
                 scene.applyBattle(state, entering, prediction);
+                const mapId = state.mapId ?? 'forest';
+                shell.dataset.mapId = mapId;
+                location.querySelector('strong')!.textContent = maps[mapId].name;
+                npcShops?.setMap(mapId);
                 identity.querySelector('.game-level')!.textContent = `레벨 ${state.character.level ?? 1}`;
                 if (character.weapon?.characterItemId !== state.character.weapon?.characterItemId) renderWeapon(state.character);
                 character = state.character;
@@ -97,7 +102,7 @@ export function mountGame(app: HTMLElement, character: GameCharacter, leave: () 
                 setBlocked('shop', blocked);
                 itemWindows?.setExternalBlocked(blocked);
             });
-            viewport.querySelector('canvas')?.setAttribute('aria-label', `${character.nickname}의 이끼숲 탐험. 좌우 방향키로 진행, 위아래 방향키로 앞뒤 이동, Space로 점프, Z로 좌우 공격합니다.`);
+            viewport.querySelector('canvas')?.setAttribute('aria-label', `${character.nickname}의 이끼숲 탐험. 좌우 방향키로 진행, 위아래 방향키로 앞뒤 이동, Space로 점프, Z로 좌우 공격, G로 포탈을 이용합니다.`);
         },
         failed: () => { loading.textContent = '숲길을 불러오지 못했어요. 캐릭터 선택으로 돌아가 다시 입장해 주세요.'; },
         battleView: state => battleOverlay.apply(state),
